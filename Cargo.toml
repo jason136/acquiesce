@@ -1,0 +1,8 @@
+[package]
+name = "acquiesce"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+minijinja = "2.11"
+openai-harmony = "0.0.3"
