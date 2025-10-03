@@ -325,7 +325,7 @@ impl PartialJson {
                 buffer.push(c);
                 if !literal.starts_with(&*buffer) {
                     buffer.pop();
-                    return ConsumeResult::Rejected(c, literal);
+                    ConsumeResult::Rejected(c, literal)
                 } else {
                     ConsumeResult::Consumed
                 }
