@@ -3,13 +3,13 @@ use std::path::Path;
 use chrono::Utc;
 use minijinja::{Environment, ErrorKind, Template};
 use minijinja_contrib::pycompat;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
     InitError,
     render::{
         RenderError,
-        schema::{ChatMessage, Tool},
+        schema::{TemplateChatMessage, TemplateTool},
     },
 };
 
@@ -27,11 +27,11 @@ pub struct ChatTemplate {
 
 #[derive(Serialize)]
 pub struct ChatTemplateInputs<'a> {
-    messages: Vec<ChatMessage>,
+    messages: Vec<TemplateChatMessage>,
+    tools: Vec<TemplateTool>,
     bos_token: Option<&'a str>,
     eos_token: Option<&'a str>,
     add_generation_prompt: bool,
-    tools: Vec<Tool>,
 }
 
 impl ChatTemplate {
@@ -61,16 +61,6 @@ impl ChatTemplate {
             return Err(InitError::MissingTemplate);
         };
 
-        fn extract_token(t: TokenizerConfigToken) -> String {
-            match t {
-                TokenizerConfigToken::String(s) => s,
-                TokenizerConfigToken::Object { content } => content,
-            }
-        }
-
-        let bos_token = tokenizer_config.bos_token.map(extract_token);
-        let eos_token = tokenizer_config.eos_token.map(extract_token);
-
         let mut environment = Environment::new();
         environment.set_unknown_method_callback(pycompat::unknown_method_callback);
 
@@ -94,8 +84,8 @@ impl ChatTemplate {
 
         Ok(Self {
             template,
-            bos_token,
-            eos_token,
+            bos_token: tokenizer_config.bos_token,
+            eos_token: tokenizer_config.eos_token,
             use_default_tool_template,
             multimodal,
         })
@@ -103,26 +93,9 @@ impl ChatTemplate {
 
     pub fn render(
         &self,
-        messages: Vec<ChatMessage>,
-        tools: Vec<Tool>,
+        messages: Vec<TemplateChatMessage>,
+        tools: Vec<TemplateTool>,
     ) -> Result<String, RenderError> {
-        // let tools = tools_and_prompt
-        //     .map(|(tools, tool_prompt)| {
-        //         // let text = if self.use_default_tool_template {
-        //         //     match serde_json::to_string(&tools) {
-        //         //         Ok(tools_str) => format!("\n---\n{}\n{}", tools_str, tool_prompt),
-        //         //         Err(e) => return Err(InferError::ToolSerializationError(e)),
-        //         //     }
-        //         // } else {
-        //         //     format!("\n---\n{}", tool_prompt)
-        //         // };
-        //         // if let Some(last_message) = messages.last_mut() {
-        //         //     last_message.content.push(ChatMessageChunk::Text { text });
-        //         // }
-        //         Ok(tools)
-        //     })
-        //     .transpose()?;
-
         // let final_message = messages.last().and_then(|msg| {
         //     msg.content.last().and_then(|chunk| {
         //         if let ChatMessageChunk::Text { text } = chunk {
@@ -135,10 +108,10 @@ impl ChatTemplate {
 
         let inputs = ChatTemplateInputs {
             messages,
+            tools,
             bos_token: self.bos_token.as_deref(),
             eos_token: self.eos_token.as_deref(),
             add_generation_prompt: true,
-            tools,
         };
 
         let rendered_template = self.template.render(inputs)?;
@@ -178,13 +151,25 @@ pub enum TokenizerConfigToken {
     Object { content: String },
 }
 
+fn deserialize_config_token<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match TokenizerConfigToken::deserialize(deserializer)? {
+        TokenizerConfigToken::String(s) => Ok(Some(s)),
+        TokenizerConfigToken::Object { content } => Ok(Some(content)),
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct TokenizerConfig {
     pub chat_template: Option<ChatTemplaces>,
     pub completion_template: Option<String>,
-    pub bos_token: Option<TokenizerConfigToken>,
-    pub eos_token: Option<TokenizerConfigToken>,
+    #[serde(deserialize_with = "deserialize_config_token")]
+    pub bos_token: Option<String>,
+    #[serde(deserialize_with = "deserialize_config_token")]
+    pub eos_token: Option<String>,
     pub tokenizer_class: Option<String>,
     pub add_bos_token: Option<bool>,
     pub add_eos_token: Option<bool>,

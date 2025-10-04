@@ -7,6 +7,9 @@ edition = "2024"
 minijinja = "2.11"
 minijinja-contrib = { version = "2.11", features = ["pycompat"] }
 openai-harmony = "0.0"
+jsonschema = "0.33"
+regex = "1.11"
+llguidance = "1.2"
 
 chrono = "0.4"
 

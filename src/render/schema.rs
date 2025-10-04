@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 #[derive(Serialize, Deserialize)]
 pub struct ChatImageUrl {
@@ -89,8 +90,8 @@ pub enum ChatMessageVariant {
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ChatMessages {
-    Text(String),
-    Array(Vec<ChatMessageVariant>),
+    Content(String),
+    Conversation(Vec<ChatMessageVariant>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -103,7 +104,7 @@ pub enum ChatMessageChunk {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ChatMessage {
+pub struct TemplateChatMessage {
     pub content: Vec<ChatMessageChunk>,
     pub role: String,
     pub name: Option<String>,
@@ -112,11 +113,11 @@ pub struct ChatMessage {
     pub tool_call_id: Option<String>,
 }
 
-impl From<ChatMessages> for Vec<ChatMessage> {
+impl From<ChatMessages> for Vec<TemplateChatMessage> {
     fn from(value: ChatMessages) -> Self {
         let variants = match value {
-            ChatMessages::Text(s) => {
-                return vec![ChatMessage {
+            ChatMessages::Content(s) => {
+                return vec![TemplateChatMessage {
                     content: vec![ChatMessageChunk::Text { text: s }],
                     role: "user".to_string(),
                     name: None,
@@ -125,7 +126,7 @@ impl From<ChatMessages> for Vec<ChatMessage> {
                     tool_call_id: None,
                 }];
             }
-            ChatMessages::Array(messages) => messages,
+            ChatMessages::Conversation(messages) => messages,
         };
 
         variants
@@ -142,7 +143,7 @@ impl From<ChatMessages> for Vec<ChatMessage> {
                             .collect(),
                     };
 
-                    ChatMessage {
+                    TemplateChatMessage {
                         content,
                         role: "developer".to_string(),
                         name: msg.name,
@@ -162,7 +163,7 @@ impl From<ChatMessages> for Vec<ChatMessage> {
                             .collect(),
                     };
 
-                    ChatMessage {
+                    TemplateChatMessage {
                         content,
                         role: "system".to_string(),
                         name: msg.name,
@@ -187,7 +188,7 @@ impl From<ChatMessages> for Vec<ChatMessage> {
                             .collect(),
                     };
 
-                    ChatMessage {
+                    TemplateChatMessage {
                         content,
                         role: "user".to_string(),
                         name: msg.name,
@@ -214,7 +215,7 @@ impl From<ChatMessages> for Vec<ChatMessage> {
                             .collect(),
                     };
 
-                    ChatMessage {
+                    TemplateChatMessage {
                         content,
                         role: "assistant".to_string(),
                         name: msg.name,
@@ -234,7 +235,7 @@ impl From<ChatMessages> for Vec<ChatMessage> {
                             .collect(),
                     };
 
-                    ChatMessage {
+                    TemplateChatMessage {
                         content,
                         role: "tool".to_string(),
                         name: None,
@@ -249,19 +250,96 @@ impl From<ChatMessages> for Vec<ChatMessage> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct FunctionDetails {
+pub struct FunctionTool {
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub schema: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub strict: Option<bool>,
+    pub parameters: serde_json::Value,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Tool {
-    pub r#type: String,
-    pub function: FunctionDetails,
+#[serde(rename_all = "snake_case")]
+pub enum CustomToolSyntax {
+    Lark,
+    Regex,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CustomToolGrammar {
+    pub definition: String,
+    pub syntax: CustomToolSyntax,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum CustomToolFormat {
+    Text,
+    Grammar { grammar: CustomToolGrammar },
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CustomTool {
+    pub name: String,
+    pub description: Option<String>,
+    pub format: CustomToolFormat,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum ChatTool {
+    Function { function: FunctionTool },
+    Custom { custom: CustomTool },
+}
+
+#[derive(Serialize)]
+pub struct TemplateTool {
+    name: String,
+    description: Option<String>,
+    parameters: serde_json::Value,
+}
+
+impl From<ChatTool> for TemplateTool {
+    fn from(value: ChatTool) -> Self {
+        match value {
+            ChatTool::Function {
+                function:
+                    FunctionTool {
+                        name,
+                        description,
+                        parameters,
+                    },
+            } => TemplateTool {
+                name,
+                description,
+                parameters,
+            },
+            ChatTool::Custom {
+                custom:
+                    CustomTool {
+                        name,
+                        description,
+                        format,
+                    },
+            } => TemplateTool {
+                name,
+                description,
+                parameters: match format {
+                    CustomToolFormat::Text => json!({ "type": "string" }),
+                    CustomToolFormat::Grammar {
+                        grammar: CustomToolGrammar { definition, syntax },
+                    } => match syntax {
+                        CustomToolSyntax::Lark => {
+                            json!({ "type": "string", "description": format!("a string that conforms to the following Lark grammar: {}", definition) })
+                        }
+                        CustomToolSyntax::Regex => {
+                            json!({ "type": "string", "pattern": definition })
+                        }
+                    },
+                },
+            },
+        }
+    }
 }
 
 #[derive(Deserialize)]
