@@ -1,8 +1,8 @@
-use crate::{Acquiesce, Arguments, LiteralOrWild, ToolCall, ToolCalls, WildType, default_roles};
+use crate::{Acquiesce, AcquiesceRepr, Arguments, LiteralOrWild, ToolCall, ToolCalls, WildType};
 
-pub fn kimi_k2() -> Acquiesce {
+pub fn kimi_k2() -> AcquiesceRepr {
     Acquiesce::Components {
-        allowed_roles: default_roles(),
+        chat_template: (),
         tool_calls: Some(ToolCalls::ToolCallsSection {
             prefix: "<|tool_calls_section_begin|>".into(),
             tool_call: ToolCall::NamedParameters {
@@ -29,15 +29,10 @@ pub fn kimi_k2() -> Acquiesce {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
 
     #[test]
     fn kimi_k2_config() {
-        let config = kimi_k2();
-        let string_config = config.to_string();
-        println!("{string_config}");
-        let _ = Acquiesce::from_str(&string_config).unwrap();
+        println!("{}", kimi_k2());
     }
 }

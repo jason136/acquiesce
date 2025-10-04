@@ -94,6 +94,15 @@ pub enum ChatMessages {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChatMessageChunk {
+    Text { text: String },
+    Image { image: ChatImageUrl },
+    // InputAudio { input_audio: }
+    Refusal { refusal: String },
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct ChatMessage {
     pub content: Vec<ChatMessageChunk>,
     pub role: String,
@@ -101,15 +110,6 @@ pub struct ChatMessage {
     pub refusal: Option<String>,
     pub tool_calls: Option<Vec<ChatToolCall>>,
     pub tool_call_id: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ChatMessageChunk {
-    Text { text: String },
-    Image { image: ChatImageUrl },
-    // InputAudio { input_audio: }
-    Refusal { refusal: String },
 }
 
 impl From<ChatMessages> for Vec<ChatMessage> {
@@ -249,9 +249,62 @@ impl From<ChatMessages> for Vec<ChatMessage> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ChatJsonSchema {
-    pub description: Option<String>,
+pub struct FunctionDetails {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub schema: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Tool {
+    pub r#type: String,
+    pub function: FunctionDetails,
+}
+
+#[derive(Deserialize)]
+pub struct FunctionName {
+    pub name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(tag = "type")]
+enum TypedChoice {
+    Function { function: FunctionName },
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ToolChoiceRepr {
+    String(String),
+    TypedChoice(TypedChoice),
+}
+
+impl From<ToolChoiceRepr> for ToolChoice {
+    fn from(value: ToolChoiceRepr) -> Self {
+        match value {
+            ToolChoiceRepr::String(s) => match s.as_str() {
+                "none" => ToolChoice::None,
+                "auto" => ToolChoice::Auto,
+                "required" => ToolChoice::Required,
+                _ => ToolChoice::Function(FunctionName { name: s }),
+            },
+            ToolChoiceRepr::TypedChoice(TypedChoice::Function { function }) => {
+                ToolChoice::Function(function)
+            }
+        }
+    }
+}
+
+#[derive(Deserialize, Default)]
+#[serde(from = "ToolChoiceRepr")]
+pub enum ToolChoice {
+    #[default]
+    Auto,
+    None,
+    Required,
+    Function(FunctionName),
 }

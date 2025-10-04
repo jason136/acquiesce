@@ -1,5 +1,6 @@
 use crate::{
-    Acquiesce, Arguments, ToolCall, ToolCalls, utils::partial_json::partial_json_consumer,
+    Acquiesce, AcquiesceInit, Arguments, ToolCall, ToolCalls,
+    utils::partial_json::partial_json_consumer,
 };
 
 pub struct ToolCallDelta {
@@ -45,12 +46,12 @@ impl Parser {
         self,
         iter: impl Iterator<Item = String>,
     ) -> impl Iterator<Item = ParseResult> {
-        let Parser(mut parser) = self;
-        iter.flat_map(move |token| parser(token))
+        let Parser(parser) = self;
+        iter.flat_map(parser)
     }
 }
 
-impl Acquiesce {
+impl AcquiesceInit {
     pub fn parser(&self) -> Option<Parser> {
         match self {
             Acquiesce::Components { tool_calls, .. } => match tool_calls.as_ref()? {

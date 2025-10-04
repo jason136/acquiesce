@@ -1,8 +1,13 @@
-use crate::{Acquiesce, Error, ToolCalls};
+use crate::{
+    Acquiesce, AcquiesceInit, Error,
+    render::schema::{ChatMessage, Tool, ToolChoice},
+};
+
+pub(crate) mod template;
 
 pub mod schema;
 
-pub enum GrammarLanguage {
+pub enum GrammarType {
     Lark,
 }
 
@@ -11,11 +16,20 @@ pub struct RenderResult {
     pub grammar: Option<String>,
 }
 
-impl Acquiesce {
-    pub fn render(&self, language: GrammarLanguage) -> Result<RenderResult, RenderError> {
+impl AcquiesceInit {
+    pub fn render(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Vec<Tool>,
+        tool_choice: ToolChoice,
+        grammar_type: GrammarType,
+    ) -> Result<RenderResult, RenderError> {
         match self {
-            Acquiesce::Components { tool_calls, .. } => {
-                let prompt = String::new();
+            Acquiesce::Components {
+                chat_template,
+                tool_calls,
+            } => {
+                let prompt = chat_template.render(messages, tools)?;
 
                 // let grammar = tool_calls.map(|tool_calls| match tool_calls {
                 //     ToolCalls::ToolCall { tool_call } => tool_call.parser(),
@@ -25,8 +39,6 @@ impl Acquiesce {
                 //         suffix,
                 //     } => tool_call.parser(),
                 // });
-
-                // Ok(RenderResult { prompt, grammar })
 
                 Ok(RenderResult {
                     prompt,
@@ -42,4 +54,7 @@ impl Acquiesce {
 }
 
 #[derive(Debug, Error)]
-pub enum RenderError {}
+pub enum RenderError {
+    #[error("chat template render error: {0}")]
+    Template(#[from] minijinja::Error),
+}

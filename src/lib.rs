@@ -1,7 +1,9 @@
-use std::{collections::HashSet, fmt::Display, path::Path, str::FromStr};
+use std::{collections::HashSet, fmt::Display, path::Path};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::render::template::ChatTemplate;
 
 pub(crate) mod utils;
 
@@ -9,11 +11,7 @@ pub mod configs;
 pub mod parse;
 pub mod render;
 
-#[derive(Serialize, Deserialize)]
-pub struct AcquiesceConfig {
-    version: Version,
-    config: Acquiesce,
-}
+pub static ACQUIESCE_CONFIG: &str = "acquiesce.json";
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -21,29 +19,16 @@ pub enum Version {
     V1,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-pub enum Acquiesce {
-    Components {
-        allowed_roles: DistinctLiterals,
-        tool_calls: Option<ToolCalls>,
-    },
-    Harmony,
+#[derive(Serialize, Deserialize)]
+pub struct AcquiesceConfig {
+    version: Version,
+    config: AcquiesceRepr,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-pub enum ToolCalls {
-    ToolCall {
-        tool_call: ToolCall,
-    },
-    ToolCallsSection {
-        prefix: OrderedLiterals,
-        tool_call: ToolCall,
-        suffix: Option<OrderedLiterals>,
-    },
+pub enum Arguments {
+    JsonObject,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -67,20 +52,35 @@ pub enum ToolCall {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-pub enum Arguments {
-    JsonObject,
+pub enum ToolCalls {
+    ToolCall {
+        tool_call: ToolCall,
+    },
+    ToolCallsSection {
+        prefix: OrderedLiterals,
+        tool_call: ToolCall,
+        suffix: Option<OrderedLiterals>,
+    },
 }
 
-impl FromStr for Acquiesce {
-    type Err = InitError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(serde_json::from_str::<AcquiesceConfig>(s)?.config)
-    }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum Acquiesce<T> {
+    Components {
+        chat_template: T,
+        tool_calls: Option<ToolCalls>,
+    },
+    Harmony,
 }
 
-impl Display for Acquiesce {
+pub type AcquiesceRepr = Acquiesce<()>;
+
+pub type AcquiesceInit = Acquiesce<ChatTemplate>;
+
+impl Display for AcquiesceRepr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let config = AcquiesceConfig {
             version: Version::V1,
@@ -93,14 +93,49 @@ impl Display for Acquiesce {
     }
 }
 
-impl Acquiesce {
-    pub fn from_file(path: &Path) -> Result<Self, InitError> {
-        FromStr::from_str(&std::fs::read_to_string(path)?)
+impl TryFrom<(AcquiesceRepr, &Path)> for AcquiesceInit {
+    type Error = InitError;
+
+    fn try_from(value: (AcquiesceRepr, &Path)) -> Result<Self, Self::Error> {
+        let (repr, dir) = value;
+
+        let acquiesce = match repr {
+            Acquiesce::Components { tool_calls, .. } => Acquiesce::Components {
+                chat_template: ChatTemplate::from_repo(dir)?,
+                tool_calls: tool_calls.clone(),
+            },
+            Acquiesce::Harmony => AcquiesceInit::Harmony,
+        };
+
+        Ok(acquiesce)
+    }
+}
+
+impl AcquiesceInit {
+    pub fn from_repo(dir: &Path) -> Result<Self, InitError> {
+        if !dir.is_dir() {
+            return Err(InitError::InvalidDir);
+        }
+
+        let config_string = std::fs::read_to_string(dir.join(ACQUIESCE_CONFIG))?;
+
+        let repr = serde_json::from_str::<AcquiesceConfig>(&config_string)?.config;
+
+        Self::try_from((repr, dir))
     }
 
-    pub fn to_file(&self, path: &Path) -> Result<(), InitError> {
-        std::fs::write(path, self.to_string())?;
-        Ok(())
+    pub fn from_repo_with_fallback(dir: &Path, fallback: AcquiesceRepr) -> Result<Self, InitError> {
+        if !dir.is_dir() {
+            return Err(InitError::InvalidDir);
+        }
+
+        let repr = if let Ok(repr) = std::fs::read_to_string(dir.join(ACQUIESCE_CONFIG)) {
+            serde_json::from_str::<AcquiesceConfig>(&repr)?.config
+        } else {
+            fallback
+        };
+
+        Self::try_from((repr, dir))
     }
 }
 
@@ -236,6 +271,15 @@ pub enum InitError {
     #[error("invalid config: {0}")]
     InvalidConfig(#[from] serde_json::Error),
 
+    #[error("path must be a directory")]
+    InvalidDir,
+
     #[error("config not found: {0}")]
     ConfigNotFound(#[from] std::io::Error),
+
+    #[error("chat template not found")]
+    MissingTemplate,
+
+    #[error("chat template compilation error: {0}")]
+    TemplateCompilation(#[from] minijinja::Error),
 }
