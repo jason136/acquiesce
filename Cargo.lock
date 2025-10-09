@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures",
+ "indexmap 2.11.4",
  "jsonschema",
  "llguidance",
  "minijinja",

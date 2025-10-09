@@ -36,12 +36,12 @@ pub enum Arguments {
 #[serde(rename_all = "snake_case")]
 pub enum ToolCall {
     JsonObject {
-        name_key: DistinctLiterals,
-        argument_key: DistinctLiterals,
+        name_key: String,
+        argument_key: String,
     },
     JsonArray {
-        name_key: DistinctLiterals,
-        argument_key: DistinctLiterals,
+        name_key: String,
+        argument_key: String,
     },
     NamedParameters {
         prefix: Option<OrderedLiterals>,
@@ -66,11 +66,18 @@ pub enum ToolCalls {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+pub struct Thinking {
+    prefix: String,
+    suffix: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum Acquiesce<T> {
     Components {
         chat_template: T,
+        thinking: Option<Thinking>,
         tool_calls: Option<ToolCalls>,
     },
     Harmony,
@@ -100,9 +107,14 @@ impl TryFrom<(AcquiesceRepr, &Path)> for AcquiesceInit {
         let (repr, dir) = value;
 
         let acquiesce = match repr {
-            Acquiesce::Components { tool_calls, .. } => Acquiesce::Components {
+            Acquiesce::Components {
+                tool_calls,
+                thinking,
+                ..
+            } => Acquiesce::Components {
                 chat_template: ChatTemplate::from_repo(dir)?,
-                tool_calls: tool_calls.clone(),
+                thinking,
+                tool_calls,
             },
             Acquiesce::Harmony => AcquiesceInit::Harmony,
         };

@@ -4,12 +4,17 @@ use chrono::Utc;
 use minijinja::{Environment, ErrorKind, Template};
 use minijinja_contrib::pycompat;
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::json;
 
 use crate::{
     InitError,
     render::{
         RenderError,
-        schema::{TemplateChatMessage, TemplateTool},
+        schema::{
+            ChatAssistantChunk, ChatMessageChunk, ChatMessageContent, ChatMessageVariant,
+            ChatMessages, ChatTool, ChatToolCall, ChatUserChunk, CustomTool, CustomToolFormat,
+            CustomToolGrammar, CustomToolSyntax, FunctionTool,
+        },
     },
 };
 
@@ -28,7 +33,7 @@ pub struct ChatTemplate {
 #[derive(Serialize)]
 pub struct ChatTemplateInputs<'a> {
     messages: Vec<TemplateChatMessage>,
-    tools: Vec<TemplateTool>,
+    tools: &'a [TemplateTool],
     bos_token: Option<&'a str>,
     eos_token: Option<&'a str>,
     add_generation_prompt: bool,
@@ -94,7 +99,7 @@ impl ChatTemplate {
     pub fn render(
         &self,
         messages: Vec<TemplateChatMessage>,
-        tools: Vec<TemplateTool>,
+        tools: &[TemplateTool],
     ) -> Result<String, RenderError> {
         // let final_message = messages.last().and_then(|msg| {
         //     msg.content.last().and_then(|chunk| {
@@ -179,4 +184,200 @@ pub struct TokenizerConfig {
 #[derive(Deserialize)]
 pub struct ModelConfig {
     pub image_token_id: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TemplateChatMessage {
+    pub content: Vec<ChatMessageChunk>,
+    pub role: String,
+    pub name: Option<String>,
+    pub refusal: Option<String>,
+    pub tool_calls: Option<Vec<ChatToolCall>>,
+    pub tool_call_id: Option<String>,
+}
+
+impl From<ChatMessages> for Vec<TemplateChatMessage> {
+    fn from(value: ChatMessages) -> Self {
+        let variants = match value {
+            ChatMessages::Content(s) => {
+                return vec![TemplateChatMessage {
+                    content: vec![ChatMessageChunk::Text { text: s }],
+                    role: "user".to_string(),
+                    name: None,
+                    refusal: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                }];
+            }
+            ChatMessages::Conversation(messages) => messages,
+        };
+
+        variants
+            .into_iter()
+            .map(|m| match m {
+                ChatMessageVariant::Developer(msg) => {
+                    let content = match msg.content {
+                        ChatMessageContent::SingleText(text) => {
+                            vec![ChatMessageChunk::Text { text }]
+                        }
+                        ChatMessageContent::ManyChunks(chunks) => chunks
+                            .into_iter()
+                            .map(|chunk| ChatMessageChunk::Text { text: chunk })
+                            .collect(),
+                    };
+
+                    TemplateChatMessage {
+                        content,
+                        role: "developer".to_string(),
+                        name: msg.name,
+                        refusal: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    }
+                }
+                ChatMessageVariant::System(msg) => {
+                    let content = match msg.content {
+                        ChatMessageContent::SingleText(text) => {
+                            vec![ChatMessageChunk::Text { text }]
+                        }
+                        ChatMessageContent::ManyChunks(chunks) => chunks
+                            .into_iter()
+                            .map(|chunk| ChatMessageChunk::Text { text: chunk })
+                            .collect(),
+                    };
+
+                    TemplateChatMessage {
+                        content,
+                        role: "system".to_string(),
+                        name: msg.name,
+                        refusal: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    }
+                }
+                ChatMessageVariant::User(msg) => {
+                    let content = match msg.content {
+                        ChatMessageContent::SingleText(text) => {
+                            vec![ChatMessageChunk::Text { text }]
+                        }
+                        ChatMessageContent::ManyChunks(chunks) => chunks
+                            .into_iter()
+                            .map(|chunk| match chunk {
+                                ChatUserChunk::Text { text } => ChatMessageChunk::Text { text },
+                                ChatUserChunk::ImageUrl { image_url } => {
+                                    ChatMessageChunk::Image { image: image_url }
+                                }
+                            })
+                            .collect(),
+                    };
+
+                    TemplateChatMessage {
+                        content,
+                        role: "user".to_string(),
+                        name: msg.name,
+                        refusal: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    }
+                }
+                ChatMessageVariant::Assistant(msg) => {
+                    let content = match msg.content {
+                        ChatMessageContent::SingleText(text) => {
+                            vec![ChatMessageChunk::Text { text }]
+                        }
+                        ChatMessageContent::ManyChunks(chunks) => chunks
+                            .into_iter()
+                            .map(|chunk| match chunk {
+                                ChatAssistantChunk::Text { text } => {
+                                    ChatMessageChunk::Text { text }
+                                }
+                                ChatAssistantChunk::Refusal { refusal } => {
+                                    ChatMessageChunk::Refusal { refusal }
+                                }
+                            })
+                            .collect(),
+                    };
+
+                    TemplateChatMessage {
+                        content,
+                        role: "assistant".to_string(),
+                        name: msg.name,
+                        refusal: msg.refusal,
+                        tool_calls: msg.tool_calls,
+                        tool_call_id: None,
+                    }
+                }
+                ChatMessageVariant::Tool(msg) => {
+                    let content = match msg.content {
+                        ChatMessageContent::SingleText(text) => {
+                            vec![ChatMessageChunk::Text { text }]
+                        }
+                        ChatMessageContent::ManyChunks(chunks) => chunks
+                            .into_iter()
+                            .map(|chunk| ChatMessageChunk::Text { text: chunk })
+                            .collect(),
+                    };
+
+                    TemplateChatMessage {
+                        content,
+                        role: "tool".to_string(),
+                        name: None,
+                        refusal: None,
+                        tool_calls: None,
+                        tool_call_id: Some(msg.tool_call_id),
+                    }
+                }
+            })
+            .collect()
+    }
+}
+
+#[derive(Serialize)]
+pub struct TemplateTool {
+    pub name: String,
+    pub description: Option<String>,
+    pub parameters: serde_json::Value,
+}
+
+impl From<ChatTool> for TemplateTool {
+    fn from(value: ChatTool) -> Self {
+        match value {
+            ChatTool::Function {
+                function:
+                    FunctionTool {
+                        name,
+                        description,
+                        parameters,
+                    },
+            } => TemplateTool {
+                name,
+                description,
+                parameters,
+            },
+            ChatTool::Custom {
+                custom:
+                    CustomTool {
+                        name,
+                        description,
+                        format,
+                    },
+            } => TemplateTool {
+                name,
+                description,
+                parameters: match format {
+                    CustomToolFormat::Text => json!({ "type": "string" }),
+                    CustomToolFormat::Grammar {
+                        grammar: CustomToolGrammar { definition, syntax },
+                    } => match syntax {
+                        CustomToolSyntax::Lark => {
+                            json!({ "type": "string", "description": format!("a string that conforms to the following Lark grammar: {}", definition) })
+                        }
+                        CustomToolSyntax::Regex => {
+                            json!({ "type": "string", "pattern": definition })
+                        }
+                    },
+                },
+            },
+        }
+    }
 }

@@ -1,8 +1,14 @@
-use crate::{Acquiesce, AcquiesceRepr, Arguments, LiteralOrWild, ToolCall, ToolCalls, WildType};
+use crate::{
+    Acquiesce, AcquiesceRepr, Arguments, LiteralOrWild, Thinking, ToolCall, ToolCalls, WildType,
+};
 
 pub fn kimi_k2() -> AcquiesceRepr {
     Acquiesce::Components {
         chat_template: (),
+        thinking: Some(Thinking {
+            prefix: "<thinking>".into(),
+            suffix: "</thinking>".into(),
+        }),
         tool_calls: Some(ToolCalls::ToolCallsSection {
             prefix: "<|tool_calls_section_begin|>".into(),
             tool_call: ToolCall::NamedParameters {
