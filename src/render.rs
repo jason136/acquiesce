@@ -11,7 +11,7 @@ use crate::{
         lark::{lark_json_schema, lark_string_literal},
         schema::{
             ChatMessages, ChatTool, CustomTool, CustomToolFormat, CustomToolGrammar,
-            CustomToolSyntax, FunctionName, FunctionTool, ToolChoice,
+            CustomToolSyntax, FunctionName, FunctionTool, ChatToolChoice,
         },
         template::TemplateTool,
     },
@@ -37,7 +37,7 @@ impl AcquiesceInit {
         &self,
         messages: ChatMessages,
         tools: Vec<ChatTool>,
-        tool_choice: ToolChoice,
+        tool_choice: ChatToolChoice,
         parallel_tool_calls: bool,
         grammar_type: GrammarType,
     ) -> Result<RenderResult, RenderError> {
@@ -50,7 +50,7 @@ impl AcquiesceInit {
                 let (Some(tool_calls), false, false) = (
                     tool_calls,
                     tools.is_empty(),
-                    matches!(tool_choice, ToolChoice::None),
+                    matches!(tool_choice, ChatToolChoice::None),
                 ) else {
                     let prompt = chat_template.render(messages.into(), &[])?;
 
@@ -119,23 +119,23 @@ impl AcquiesceInit {
 
                         fn render_tool_choice(
                             tool_call: &ToolCall,
-                            tool_choice: &ToolChoice,
+                            tool_choice: &ChatToolChoice,
                             validated_tools: &[TemplateTool],
                             rules: &mut HashSet<String>,
                         ) -> Result<String, RenderError> {
                             Ok(match &tool_choice {
-                                ToolChoice::Auto => {
+                                ChatToolChoice::Auto => {
                                     format!("({})?", tool_call.render_lark(validated_tools, rules))
                                 }
-                                ToolChoice::None => String::new(),
-                                ToolChoice::Required => {
+                                ChatToolChoice::None => String::new(),
+                                ChatToolChoice::Required => {
                                     format!("({})", tool_call.render_lark(validated_tools, rules))
                                 }
-                                ToolChoice::Function(FunctionName { name }) => {
+                                ChatToolChoice::Function(FunctionName { name }) => {
                                     let selected_tool = validated_tools
                                         .iter()
                                         .find(|tool| &tool.name == name)
-                                        .ok_or(RenderError::ToolChoice)?;
+                                        .ok_or(RenderError::ChatToolChoice)?;
 
                                     format!(
                                         "({})",
@@ -358,5 +358,5 @@ pub enum RenderError {
     Template(#[from] minijinja::Error),
 
     #[error("tool choice not found in provided tools")]
-    ToolChoice,
+    ChatToolChoice,
 }

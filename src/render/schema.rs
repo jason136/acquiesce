@@ -164,17 +164,17 @@ enum ToolChoiceRepr {
     TypedChoice(TypedChoice),
 }
 
-impl From<ToolChoiceRepr> for ToolChoice {
+impl From<ToolChoiceRepr> for ChatToolChoice {
     fn from(value: ToolChoiceRepr) -> Self {
         match value {
             ToolChoiceRepr::String(s) => match s.as_str() {
-                "none" => ToolChoice::None,
-                "auto" => ToolChoice::Auto,
-                "required" => ToolChoice::Required,
-                _ => ToolChoice::Function(FunctionName { name: s }),
+                "none" => ChatToolChoice::None,
+                "auto" => ChatToolChoice::Auto,
+                "required" => ChatToolChoice::Required,
+                _ => ChatToolChoice::Function(FunctionName { name: s }),
             },
             ToolChoiceRepr::TypedChoice(TypedChoice::Function { function }) => {
-                ToolChoice::Function(function)
+                ChatToolChoice::Function(function)
             }
         }
     }
@@ -182,7 +182,7 @@ impl From<ToolChoiceRepr> for ToolChoice {
 
 #[derive(Deserialize, Default)]
 #[serde(from = "ToolChoiceRepr")]
-pub enum ToolChoice {
+pub enum ChatToolChoice {
     #[default]
     Auto,
     None,

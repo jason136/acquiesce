@@ -1,10 +1,16 @@
+[workspace]
+members = [
+    ".",
+    "bindings/node",
+]
+
 [package]
 name = "acquiesce"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-minijinja = "2.11"
+minijinja = { version = "2.11", features = ["unicode", "loop_controls"] }
 minijinja-contrib = { version = "2.11", features = ["pycompat"] }
 openai-harmony = "0.0"
 jsonschema = "0.33"
