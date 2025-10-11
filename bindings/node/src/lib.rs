@@ -20,13 +20,9 @@ impl AcquiesceHandle {
         bos_token: Option<String>,
         eos_token: Option<String>,
     ) -> Result<Self> {
-        let repr = if let Ok(repr) = serde_json::from_str::<AcquiesceRepr>(&source) {
-            repr
-        } else if let Some(repr) = AcquiesceRepr::infer_default(source.as_str()) {
-            repr
-        } else {
-            return Err(Error::new(Status::InvalidArg, "Invalid source"));
-        };
+        let repr = serde_json::from_str::<AcquiesceRepr>(&source)
+            .or(AcquiesceRepr::infer_default(source.as_str()))
+            .map_err(|e| Error::new(Status::InvalidArg, e.to_string()))?;
 
         Ok(Self(
             repr.resolve_from_options(chat_template, bos_token, eos_token)

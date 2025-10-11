@@ -155,12 +155,12 @@ impl AcquiesceRepr {
         })
     }
 
-    pub fn infer_default(model_name: &str) -> Option<Self> {
+    pub fn infer_default(model_name: &str) -> Result<Self, InitError> {
         let model = model_name.trim().to_lowercase();
 
         match model {
-            _ if ["kimi", "k2"].iter().all(|m| model.contains(m)) => Some(kimi_k2()),
-            _ => None,
+            _ if ["kimi", "k2"].iter().all(|m| model.contains(m)) => Ok(kimi_k2()),
+            _ => return Err(InitError::InferFailed),
         }
     }
 }
@@ -302,6 +302,9 @@ pub enum InitError {
 
     #[error("required config not found: {0}")]
     ConfigNotFound(&'static str),
+
+    #[error("failed to infer default config")]
+    InferFailed,
 
     #[error("chat template not found")]
     MissingTemplate,

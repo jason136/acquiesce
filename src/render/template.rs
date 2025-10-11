@@ -177,9 +177,10 @@ fn deserialize_config_token<'de, D>(deserializer: D) -> Result<Option<String>, D
 where
     D: Deserializer<'de>,
 {
-    match TokenizerConfigToken::deserialize(deserializer)? {
-        TokenizerConfigToken::String(s) => Ok(Some(s)),
-        TokenizerConfigToken::Object { content } => Ok(Some(content)),
+    match Option::<TokenizerConfigToken>::deserialize(deserializer)? {
+        Some(TokenizerConfigToken::String(s)) => Ok(Some(s)),
+        Some(TokenizerConfigToken::Object { content }) => Ok(Some(content)),
+        None => Ok(None),
     }
 }
 
