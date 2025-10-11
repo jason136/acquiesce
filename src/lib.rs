@@ -1,9 +1,10 @@
-use std::{collections::HashSet, fmt::Display, path::Path};
+use std::{collections::HashSet, fmt::Display};
 
+use hf_hub::CacheRepo;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::render::template::ChatTemplate;
+use crate::{configs::kimik2::kimi_k2, render::template::ChatTemplate};
 
 pub(crate) mod utils;
 
@@ -100,54 +101,67 @@ impl Display for AcquiesceRepr {
     }
 }
 
-impl TryFrom<(AcquiesceRepr, &Path)> for Acquiesce {
-    type Error = InitError;
+impl Acquiesce {
+    pub fn from_repo(repo: &CacheRepo) -> Result<Self, InitError> {
+        let config_string = std::fs::read_to_string(
+            repo.get(ACQUIESCE_CONFIG)
+                .ok_or(InitError::ConfigNotFound(ACQUIESCE_CONFIG))?,
+        )?;
 
-    fn try_from(value: (AcquiesceRepr, &Path)) -> Result<Self, Self::Error> {
-        let (repr, dir) = value;
+        let repr = serde_json::from_str::<AcquiesceConfig>(&config_string)?.config;
 
-        let acquiesce = match repr {
+        repr.resolve_from_repo(repo)
+    }
+}
+
+impl AcquiesceRepr {
+    pub fn resolve_from_repo(self, repo: &CacheRepo) -> Result<Acquiesce, InitError> {
+        Ok(match self {
             Config::Components {
                 tool_calls,
                 thinking,
                 ..
             } => Acquiesce::Components {
-                chat_template: ChatTemplate::from_repo(dir)?,
+                chat_template: ChatTemplate::from_repo(repo)?,
                 thinking,
                 tool_calls,
             },
             Config::Harmony => Config::Harmony,
-        };
-
-        Ok(acquiesce)
-    }
-}
-
-impl Acquiesce {
-    pub fn from_repo(dir: &Path) -> Result<Self, InitError> {
-        if !dir.is_dir() {
-            return Err(InitError::InvalidDir);
-        }
-
-        let config_string = std::fs::read_to_string(dir.join(ACQUIESCE_CONFIG))?;
-
-        let repr = serde_json::from_str::<AcquiesceConfig>(&config_string)?.config;
-
-        Self::try_from((repr, dir))
+        })
     }
 
-    pub fn from_repo_with_fallback(dir: &Path, fallback: AcquiesceRepr) -> Result<Self, InitError> {
-        if !dir.is_dir() {
-            return Err(InitError::InvalidDir);
+    pub fn resolve_from_options(
+        self,
+        chat_template: String,
+        bos_token: Option<String>,
+        eos_token: Option<String>,
+    ) -> Result<Acquiesce, InitError> {
+        Ok(match self {
+            Config::Components {
+                thinking,
+                tool_calls,
+                ..
+            } => Acquiesce::Components {
+                chat_template: ChatTemplate::from_options(
+                    chat_template,
+                    bos_token,
+                    eos_token,
+                    true,
+                )?,
+                thinking,
+                tool_calls,
+            },
+            Config::Harmony => Config::Harmony,
+        })
+    }
+
+    pub fn infer_default(model_name: &str) -> Option<Self> {
+        let model = model_name.trim().to_lowercase();
+
+        match model {
+            _ if ["kimi", "k2"].iter().all(|m| model.contains(m)) => Some(kimi_k2()),
+            _ => None,
         }
-
-        let repr = if let Ok(repr) = std::fs::read_to_string(dir.join(ACQUIESCE_CONFIG)) {
-            serde_json::from_str::<AcquiesceConfig>(&repr)?.config
-        } else {
-            fallback
-        };
-
-        Self::try_from((repr, dir))
     }
 }
 
@@ -283,11 +297,11 @@ pub enum InitError {
     #[error("invalid config: {0}")]
     InvalidConfig(#[from] serde_json::Error),
 
-    #[error("path must be a directory")]
-    InvalidDir,
+    #[error("failed to read config: {0}")]
+    FailedToReadConfig(#[from] std::io::Error),
 
-    #[error("config not found: {0}")]
-    ConfigNotFound(#[from] std::io::Error),
+    #[error("required config not found: {0}")]
+    ConfigNotFound(&'static str),
 
     #[error("chat template not found")]
     MissingTemplate,

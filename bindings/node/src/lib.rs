@@ -1,13 +1,9 @@
-use std::{
-    path::Path,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use acquiesce::{
-    configs::kimik2::kimi_k2,
     parse::{ParseResult, Parser},
     render::{GrammarType, RenderResult},
-    Acquiesce,
+    Acquiesce, AcquiesceRepr,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -18,20 +14,24 @@ pub struct AcquiesceHandle(Acquiesce);
 #[napi]
 impl AcquiesceHandle {
     #[napi(constructor)]
-    pub fn from_repo_with_fallback(path: String, fallback_name: Option<String>) -> Result<Self> {
-        let inner = if let Some(fallback_name) = fallback_name {
-            let fallback = match fallback_name.as_str() {
-                "kimi" => kimi_k2(),
-                _ => return Err(Error::new(Status::InvalidArg, "Invalid fallback name")),
-            };
-
-            Acquiesce::from_repo_with_fallback(Path::new(&path), fallback)
+    pub fn new(
+        source: String,
+        chat_template: String,
+        bos_token: Option<String>,
+        eos_token: Option<String>,
+    ) -> Result<Self> {
+        let repr = if let Ok(repr) = serde_json::from_str::<AcquiesceRepr>(&source) {
+            repr
+        } else if let Some(repr) = AcquiesceRepr::infer_default(source.as_str()) {
+            repr
         } else {
-            Acquiesce::from_repo(Path::new(&path))
-        }
-        .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+            return Err(Error::new(Status::InvalidArg, "Invalid source"));
+        };
 
-        Ok(Self(inner))
+        Ok(Self(
+            repr.resolve_from_options(chat_template, bos_token, eos_token)
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?,
+        ))
     }
 
     #[napi(ts_return_type = "Promise<RenderTaskResult>")]

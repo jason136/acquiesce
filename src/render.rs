@@ -10,8 +10,8 @@ use crate::{
     render::{
         lark::{lark_json_schema, lark_string_literal},
         schema::{
-            ChatMessages, ChatTool, ChatToolChoice, CustomTool, CustomToolFormat,
-            CustomToolGrammar, CustomToolSyntax, FunctionName, FunctionTool,
+            ChatTool, ChatToolChoice, CustomTool, CustomToolFormat, CustomToolGrammar,
+            CustomToolSyntax, FunctionName, FunctionTool,
         },
         template::{TemplateChatMessage, TemplateTool},
     },
@@ -52,7 +52,7 @@ impl Acquiesce {
                     tools.is_empty(),
                     matches!(tool_choice, ChatToolChoice::None),
                 ) else {
-                    let prompt = chat_template.render(messages.into(), &[])?;
+                    let prompt = chat_template.render(&messages.into(), &[])?;
 
                     return Ok(RenderResult {
                         prompt,
@@ -194,7 +194,7 @@ impl Acquiesce {
                     }
                 };
 
-                let prompt = chat_template.render(messages.into(), &validated_tools)?;
+                let prompt = chat_template.render(&messages.into(), &validated_tools)?;
 
                 let parser = self.parser();
 

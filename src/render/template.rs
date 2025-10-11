@@ -1,6 +1,5 @@
-use std::path::Path;
-
 use chrono::Utc;
+use hf_hub::CacheRepo;
 use minijinja::{Environment, ErrorKind, Template};
 use minijinja_contrib::pycompat;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -26,13 +25,12 @@ pub struct ChatTemplate {
     template: Template<'static, 'static>,
     bos_token: Option<String>,
     eos_token: Option<String>,
-    use_default_tool_template: bool,
     multimodal: bool,
 }
 
 #[derive(Serialize)]
 pub struct ChatTemplateInputs<'a> {
-    messages: Vec<TemplateChatMessage>,
+    messages: &'a [TemplateChatMessage],
     tools: &'a [TemplateTool],
     bos_token: Option<&'a str>,
     eos_token: Option<&'a str>,
@@ -40,19 +38,25 @@ pub struct ChatTemplateInputs<'a> {
 }
 
 impl ChatTemplate {
-    pub fn from_repo(dir: &Path) -> Result<Self, InitError> {
-        let template_filename = dir.join(CHAT_TEMPLATE);
+    pub fn from_repo(repo: &CacheRepo) -> Result<Self, InitError> {
+        let template_filename = repo.get(CHAT_TEMPLATE);
 
-        let tokenizer_config_string = std::fs::read_to_string(dir.join(TOKENIZER_CONFIG))?;
+        let tokenizer_config_string = std::fs::read_to_string(
+            repo.get(TOKENIZER_CONFIG)
+                .ok_or(InitError::ConfigNotFound(TOKENIZER_CONFIG))?,
+        )?;
         let tokenizer_config = serde_json::from_str::<TokenizerConfig>(&tokenizer_config_string)?;
 
-        let model_config_string = std::fs::read_to_string(dir.join(MODEL_CONFIG))?;
+        let model_config_string = std::fs::read_to_string(
+            repo.get(MODEL_CONFIG)
+                .ok_or(InitError::ConfigNotFound(MODEL_CONFIG))?,
+        )?;
         let model_config = serde_json::from_str::<ModelConfig>(&model_config_string)?;
 
         let multimodal = model_config.image_token_id.is_some();
 
-        let template_string = if template_filename.is_file() {
-            std::fs::read_to_string(template_filename)?
+        let template_string = if let Some(file) = template_filename {
+            std::fs::read_to_string(file)?
         } else if let Some(template_string) = tokenizer_config.chat_template.and_then(|c| match c {
             ChatTemplaces::Single(template) => Some(template),
             ChatTemplaces::Named(templates) => templates
@@ -66,6 +70,20 @@ impl ChatTemplate {
             return Err(InitError::MissingTemplate);
         };
 
+        Self::from_options(
+            template_string,
+            tokenizer_config.bos_token,
+            tokenizer_config.eos_token,
+            multimodal,
+        )
+    }
+
+    pub fn from_options(
+        chat_template: String,
+        bos_token: Option<String>,
+        eos_token: Option<String>,
+        multimodal: bool,
+    ) -> Result<Self, InitError> {
         let mut environment = Environment::new();
         environment.set_unknown_method_callback(pycompat::unknown_method_callback);
 
@@ -82,23 +100,22 @@ impl ChatTemplate {
         environment.add_function("strftime_now", strftime_now);
 
         let template = Box::leak(Box::new(environment))
-            .template_from_str(Box::leak(template_string.into_boxed_str()))?;
+            .template_from_str(Box::leak(chat_template.into_boxed_str()))?;
 
-        let variables = template.undeclared_variables(true);
-        let use_default_tool_template = !variables.contains("tools");
+        // let variables = template.undeclared_variables(true);
+        // let use_default_tool_template = !variables.contains("tools");
 
         Ok(Self {
             template,
-            bos_token: tokenizer_config.bos_token,
-            eos_token: tokenizer_config.eos_token,
-            use_default_tool_template,
+            bos_token,
+            eos_token,
             multimodal,
         })
     }
 
     pub fn render(
         &self,
-        messages: Vec<TemplateChatMessage>,
+        messages: &[TemplateChatMessage],
         tools: &[TemplateTool],
     ) -> Result<String, RenderError> {
         // let final_message = messages.last().and_then(|msg| {
