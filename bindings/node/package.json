@@ -1,22 +1,3 @@
 {
-  "name": "acquiesce",
-  "version": "1.0.0",
-  "description": "Acquiesce bindings for Node.js",
-  "main": "index.js",
-  "types": "index.d.ts",
-  "license": "MIT",
-  "files": [
-    "index.js",
-    "index.d.ts",
-    "*.node"
-  ],
-  "engines": {
-    "node": ">= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0"
-  },
-  "scripts": {
-    "prepare": "napi build --platform --release"
-  },
-  "devDependencies": {
-    "@napi-rs/cli": "^3.2.0"
-  }
+  "private": true
 }
