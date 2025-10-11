@@ -23,15 +23,39 @@ pub enum ParseResult {
 
 pub(crate) struct Consumer(pub Box<dyn FnMut(char) -> ConsumeResult>);
 
-pub(crate) type StatefulParser = Box<dyn FnMut(String) -> Vec<ParseResult> + Send + Sync>;
+pub(crate) trait DynStatefulParser: Send + Sync {
+    fn parse(&mut self, token: String) -> Vec<ParseResult>;
+    fn box_clone(&self) -> Box<dyn DynStatefulParser>;
+}
 
+impl<T> DynStatefulParser for T
+where
+    T: FnMut(String) -> Vec<ParseResult> + Send + Sync + Clone + 'static,
+{
+    fn parse(&mut self, token: String) -> Vec<ParseResult> {
+        self(token)
+    }
+
+    fn box_clone(&self) -> Box<dyn DynStatefulParser> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn DynStatefulParser> {
+    fn clone(&self) -> Self {
+        self.box_clone()
+    }
+}
+
+pub(crate) type StatefulParser = Box<dyn DynStatefulParser>;
+
+#[derive(Clone)]
 pub struct Parser(pub(crate) StatefulParser);
 
 impl Parser {
     pub fn advance(&mut self, token: String) -> impl Iterator<Item = ParseResult> {
         let Parser(parser) = self;
-        parser(token);
-        vec![].into_iter()
+        parser.parse(token).into_iter()
     }
 
     // pub fn parse_stream(
@@ -45,8 +69,8 @@ impl Parser {
         self,
         iter: impl Iterator<Item = String>,
     ) -> impl Iterator<Item = ParseResult> {
-        let Parser(parser) = self;
-        iter.flat_map(parser)
+        let Parser(mut parser) = self;
+        iter.flat_map(move |token| parser.parse(token))
     }
 }
 
