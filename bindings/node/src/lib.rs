@@ -34,7 +34,7 @@ impl AcquiesceHandle {
         Ok(Self(inner))
     }
 
-    #[napi]
+    #[napi(ts_return_type = "Promise<RenderTaskResult>")]
     pub fn render<'a>(
         &'a self,
         messages_json: String,
@@ -53,7 +53,7 @@ impl AcquiesceHandle {
         })
     }
 
-    #[napi]
+    #[napi(ts_return_type = "Promise<ParseTaskResult>")]
     pub fn parse(&self, parser: ExternalRef<Arc<Mutex<Parser>>>) -> AsyncTask<ParseTask> {
         AsyncTask::new(ParseTask {
             parser: parser.clone(),
@@ -119,13 +119,13 @@ pub struct ParseTaskResult {}
 #[napi]
 impl Task for ParseTask {
     type Output = Vec<ParseResult>;
-    type JsValue = ();
+    type JsValue = ParseTaskResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
         Ok(Vec::new())
     }
 
-    fn resolve(&mut self, env: Env, results: Self::Output) -> Result<Self::JsValue> {
-        Ok(())
+    fn resolve(&mut self, _env: Env, _results: Self::Output) -> Result<Self::JsValue> {
+        Ok(ParseTaskResult {})
     }
 }

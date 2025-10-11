@@ -13,14 +13,14 @@ use crate::{
             ChatMessages, ChatTool, ChatToolChoice, CustomTool, CustomToolFormat,
             CustomToolGrammar, CustomToolSyntax, FunctionName, FunctionTool,
         },
-        template::TemplateTool,
+        template::{TemplateChatMessage, TemplateTool},
     },
 };
 
 pub(crate) mod lark;
-pub(crate) mod template;
 
 pub mod schema;
+pub mod template;
 
 pub enum GrammarType {
     Lark,
@@ -35,7 +35,7 @@ pub struct RenderResult {
 impl Acquiesce {
     pub fn render(
         &self,
-        messages: ChatMessages,
+        messages: impl Into<Vec<TemplateChatMessage>>,
         tools: Vec<ChatTool>,
         tool_choice: ChatToolChoice,
         parallel_tool_calls: bool,
