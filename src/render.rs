@@ -4,14 +4,14 @@ use llguidance::{ParserFactory, api::TopLevelGrammar, toktrie::ApproximateTokEnv
 use serde_json::json;
 
 use crate::{
-    Acquiesce, AcquiesceInit, Arguments, Error, LiteralOrWild, OrderedLiterals, Thinking, ToolCall,
+    Acquiesce, Arguments, Config, Error, LiteralOrWild, OrderedLiterals, Thinking, ToolCall,
     ToolCalls, WildType,
     parse::Parser,
     render::{
         lark::{lark_json_schema, lark_string_literal},
         schema::{
-            ChatMessages, ChatTool, CustomTool, CustomToolFormat, CustomToolGrammar,
-            CustomToolSyntax, FunctionName, FunctionTool, ChatToolChoice,
+            ChatMessages, ChatTool, ChatToolChoice, CustomTool, CustomToolFormat,
+            CustomToolGrammar, CustomToolSyntax, FunctionName, FunctionTool,
         },
         template::TemplateTool,
     },
@@ -32,7 +32,7 @@ pub struct RenderResult {
     pub parser: Option<Parser>,
 }
 
-impl AcquiesceInit {
+impl Acquiesce {
     pub fn render(
         &self,
         messages: ChatMessages,
@@ -42,7 +42,7 @@ impl AcquiesceInit {
         grammar_type: GrammarType,
     ) -> Result<RenderResult, RenderError> {
         match self {
-            Acquiesce::Components {
+            Config::Components {
                 chat_template,
                 thinking,
                 tool_calls,
@@ -204,7 +204,7 @@ impl AcquiesceInit {
                     parser,
                 })
             }
-            Acquiesce::Harmony => Ok(RenderResult {
+            Config::Harmony => Ok(RenderResult {
                 prompt: String::new(),
                 grammar: None,
                 parser: None,

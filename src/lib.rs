@@ -74,7 +74,7 @@ pub struct Thinking {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-pub enum Acquiesce<T> {
+pub enum Config<T> {
     Components {
         chat_template: T,
         thinking: Option<Thinking>,
@@ -83,9 +83,9 @@ pub enum Acquiesce<T> {
     Harmony,
 }
 
-pub type AcquiesceRepr = Acquiesce<()>;
+pub type AcquiesceRepr = Config<()>;
 
-pub type AcquiesceInit = Acquiesce<ChatTemplate>;
+pub type Acquiesce = Config<ChatTemplate>;
 
 impl Display for AcquiesceRepr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -100,14 +100,14 @@ impl Display for AcquiesceRepr {
     }
 }
 
-impl TryFrom<(AcquiesceRepr, &Path)> for AcquiesceInit {
+impl TryFrom<(AcquiesceRepr, &Path)> for Acquiesce {
     type Error = InitError;
 
     fn try_from(value: (AcquiesceRepr, &Path)) -> Result<Self, Self::Error> {
         let (repr, dir) = value;
 
         let acquiesce = match repr {
-            Acquiesce::Components {
+            Config::Components {
                 tool_calls,
                 thinking,
                 ..
@@ -116,14 +116,14 @@ impl TryFrom<(AcquiesceRepr, &Path)> for AcquiesceInit {
                 thinking,
                 tool_calls,
             },
-            Acquiesce::Harmony => AcquiesceInit::Harmony,
+            Config::Harmony => Config::Harmony,
         };
 
         Ok(acquiesce)
     }
 }
 
-impl AcquiesceInit {
+impl Acquiesce {
     pub fn from_repo(dir: &Path) -> Result<Self, InitError> {
         if !dir.is_dir() {
             return Err(InitError::InvalidDir);

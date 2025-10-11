@@ -1,65 +1,131 @@
-// use std::path::Path;
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
-// use acquiesce::{configs::kimik2::kimi_k2, AcquiesceInit};
-// use napi::bindgen_prelude::*;
-// use napi_derive::napi;
+use acquiesce::{
+    configs::kimik2::kimi_k2,
+    parse::{ParseResult, Parser},
+    render::{GrammarType, RenderResult},
+    Acquiesce,
+};
+use napi::bindgen_prelude::*;
+use napi_derive::napi;
 
-// struct HeavyTask {
-//     input: Vec<u8>,
-// }
+#[napi]
+pub struct AcquiesceHandle(Acquiesce);
 
-// #[napi]
-// impl Task for HeavyTask {
-//     type Output = Vec<u8>;
-//     type JsValue = Vec<u8>;
+#[napi]
+impl AcquiesceHandle {
+    #[napi(constructor)]
+    pub fn from_repo_with_fallback(path: String, fallback_name: Option<String>) -> Result<Self> {
+        let inner = if let Some(fallback_name) = fallback_name {
+            let fallback = match fallback_name.as_str() {
+                "kimi" => kimi_k2(),
+                _ => return Err(Error::new(Status::InvalidArg, "Invalid fallback name")),
+            };
 
-//     fn compute(&mut self) -> Result<Self::Output> {
-//         let mut transformed = self.input.clone();
-//         for byte in &mut transformed {
-//             *byte = byte.wrapping_mul(31).rotate_left(3);
-//         }
-//         Ok(transformed)
-//     }
+            Acquiesce::from_repo_with_fallback(Path::new(&path), fallback)
+        } else {
+            Acquiesce::from_repo(Path::new(&path))
+        }
+        .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
-//     fn resolve(&mut self, _env: Env, out: Self::Output) -> Result<Self::JsValue> {
-//         Ok(out)
-//     }
-// }
+        Ok(Self(inner))
+    }
 
-// #[napi]
-// pub fn heavy_transform(input: Buffer) -> AsyncTask<HeavyTask> {
-//     AsyncTask::new(HeavyTask {
-//         input: input.to_vec(),
-//     })
-// }
+    #[napi]
+    pub fn render<'a>(
+        &'a self,
+        messages_json: String,
+        tools_json: String,
+        tool_choice_json: String,
+        parallel_tool_calls: bool,
+    ) -> AsyncTask<RenderTask<'a>> {
+        let AcquiesceHandle(inner) = self;
+        AsyncTask::new(RenderTask {
+            inner,
+            messages_json,
+            tools_json,
+            tool_choice_json,
+            parallel_tool_calls,
+            grammar_type: GrammarType::Lark,
+        })
+    }
 
-// #[napi]
-// pub struct AcquiesceHandle {
-//     inner: AcquiesceInit,
-// }
+    #[napi]
+    pub fn parse(&self, parser: ExternalRef<Arc<Mutex<Parser>>>) -> AsyncTask<ParseTask> {
+        AsyncTask::new(ParseTask {
+            parser: parser.clone(),
+        })
+    }
+}
 
-// #[napi]
-// impl AcquiesceHandle {
-//     #[napi(constructor)]
-//     pub fn from_repo_with_fallback(path: String, fallback_name: Option<String>) -> Result<Self> {
-//         let inner = if let Some(fallback_name) = fallback_name {
-//             let fallback = match fallback_name.as_str() {
-//                 "kimi" => kimi_k2(),
-//                 _ => return Err(Error::new(Status::InvalidArg, "Invalid fallback name")),
-//             };
+pub struct RenderTask<'a> {
+    inner: &'a Acquiesce,
+    messages_json: String,
+    tools_json: String,
+    tool_choice_json: String,
+    parallel_tool_calls: bool,
+    grammar_type: GrammarType,
+}
 
-//             AcquiesceInit::from_repo_with_fallback(Path::new(&path), fallback)
-//         } else {
-//             AcquiesceInit::from_repo(Path::new(&path))
-//         }
-//         .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+#[napi(object)]
+pub struct RenderTaskResult {
+    pub prompt: String,
+    pub grammar: Option<String>,
+    pub parser: Option<ExternalRef<Arc<Mutex<Parser>>>>,
+}
 
-//         Ok(Self { inner })
-//     }
+#[napi]
+impl<'a> Task for RenderTask<'a> {
+    type Output = RenderResult;
+    type JsValue = RenderTaskResult;
 
-//     // // Demonstrate using the async Task pattern bound to this instance
-//     // #[napi]
-//     // pub fn transform_async(&self) -> AsyncTask<HeavyTask> {
-//     //     AsyncTask::new(HeavyTask { input: self.inner })
-//     // }
-// }
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(RenderResult {
+            prompt: self.messages_json.clone(),
+            grammar: None,
+            parser: None,
+        })
+    }
+
+    fn resolve(
+        &mut self,
+        env: Env,
+        RenderResult {
+            prompt,
+            grammar,
+            parser,
+        }: Self::Output,
+    ) -> Result<Self::JsValue> {
+        Ok(RenderTaskResult {
+            prompt,
+            grammar,
+            parser: parser
+                .map(|p| ExternalRef::new(&env, Arc::new(Mutex::new(p))))
+                .transpose()?,
+        })
+    }
+}
+
+pub struct ParseTask {
+    parser: Arc<Mutex<Parser>>,
+}
+
+#[napi(object)]
+pub struct ParseTaskResult {}
+
+#[napi]
+impl Task for ParseTask {
+    type Output = Vec<ParseResult>;
+    type JsValue = ();
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(Vec::new())
+    }
+
+    fn resolve(&mut self, env: Env, results: Self::Output) -> Result<Self::JsValue> {
+        Ok(())
+    }
+}

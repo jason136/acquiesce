@@ -1,6 +1,5 @@
 use crate::{
-    Acquiesce, AcquiesceInit, Arguments, ToolCall, ToolCalls,
-    utils::partial_json::partial_json_consumer,
+    Acquiesce, Arguments, Config, ToolCall, ToolCalls, utils::partial_json::partial_json_consumer,
 };
 
 pub struct ToolCallDelta {
@@ -24,7 +23,7 @@ pub enum ParseResult {
 
 pub(crate) struct Consumer(pub Box<dyn FnMut(char) -> ConsumeResult>);
 
-pub(crate) type StatefulParser = Box<dyn FnMut(String) -> Vec<ParseResult>>;
+pub(crate) type StatefulParser = Box<dyn FnMut(String) -> Vec<ParseResult> + Send + Sync>;
 
 pub struct Parser(pub(crate) StatefulParser);
 
@@ -51,10 +50,10 @@ impl Parser {
     }
 }
 
-impl AcquiesceInit {
+impl Acquiesce {
     pub fn parser(&self) -> Option<Parser> {
         match self {
-            Acquiesce::Components { tool_calls, .. } => match tool_calls.as_ref()? {
+            Config::Components { tool_calls, .. } => match tool_calls.as_ref()? {
                 ToolCalls::ToolCall { tool_call } => Some(Parser(tool_call.parser())),
                 ToolCalls::ToolCallsSection {
                     prefix,
@@ -62,7 +61,7 @@ impl AcquiesceInit {
                     suffix,
                 } => Some(Parser(tool_call.parser())),
             },
-            Acquiesce::Harmony => None,
+            Config::Harmony => None,
         }
     }
 }
