@@ -5,11 +5,16 @@ edition = "2024"
 
 [lib]
 name = "acquiesce_py"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "stub_gen"
+path = "src/stub_gen.rs"
 
 [dependencies]
 acquiesce = { path = "../../" }
 pyo3 = { version = "0.26", features = ["extension-module"] }
+pyo3-stub-gen = "0.15"
 
 serde = { workspace = true }
 serde_json = { workspace = true }

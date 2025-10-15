@@ -6,18 +6,23 @@ use hf_hub::{Cache, Repo, RepoType};
 use pyo3::exceptions::{PyIOError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyType;
+use pyo3_stub_gen::define_stub_info_gatherer;
+use pyo3_stub_gen::derive::*;
 
 pyo3::create_exception!(acquiesce_py, InitError, PyValueError);
 pyo3::create_exception!(acquiesce_py, RenderError, PyRuntimeError);
 pyo3::create_exception!(acquiesce_py, ParseError, PyIOError);
 
+#[gen_stub_pyclass]
 #[pyclass]
 pub struct Acquiesce(acquiesce::Acquiesce);
 
+#[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone)]
 pub struct Parser(acquiesce::parse::Parser);
 
+#[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone)]
 pub struct RenderResult {
@@ -29,6 +34,7 @@ pub struct RenderResult {
     pub parser: Option<Parser>,
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl Acquiesce {
     #[classmethod]
@@ -88,6 +94,7 @@ impl Acquiesce {
     }
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl Parser {
     fn parse(&self, py: Python, _text: String) -> PyResult<Vec<String>> {
@@ -111,3 +118,5 @@ fn acquiesce_py(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("ParseError", py.get_type::<ParseError>())?;
     Ok(())
 }
+
+define_stub_info_gatherer!(stub_info);
