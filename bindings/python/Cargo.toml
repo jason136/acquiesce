@@ -1,5 +1,5 @@
 [package]
-name = "acquiesce-python"
+name = "acquiesce-py"
 version = "0.1.0"
 edition = "2024"
 

@@ -2,12 +2,8 @@
 requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
-[tool.maturin]
-python-source = "python"
-include = ["python/**/*.pyi"]
-
 [project]
-name = "acquiesce"
+name = "acquiesce_py"
 version = "0.1.0"
 requires-python = ">=3.9"
 description = "Minimal Python bindings for acquiesce"
