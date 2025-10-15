@@ -135,6 +135,8 @@ impl AcquiesceRepr {
         chat_template: String,
         bos_token: Option<String>,
         eos_token: Option<String>,
+        multimodal: bool,
+        add_generation_prompt: bool,
     ) -> Result<Acquiesce, InitError> {
         Ok(match self {
             Config::Components {
@@ -146,7 +148,8 @@ impl AcquiesceRepr {
                     chat_template,
                     bos_token,
                     eos_token,
-                    true,
+                    multimodal,
+                    add_generation_prompt,
                 )?,
                 thinking,
                 tool_calls,
@@ -160,7 +163,7 @@ impl AcquiesceRepr {
 
         match model {
             _ if ["kimi", "k2"].iter().all(|m| model.contains(m)) => Ok(kimi_k2()),
-            _ => return Err(InitError::InferFailed),
+            _ => Err(InitError::InferFailed),
         }
     }
 }

@@ -2,12 +2,20 @@
 members = [
     ".",
     "bindings/node",
+    "bindings/python",
 ]
+default-members = ["."]
 
 [package]
 name = "acquiesce"
 version = "0.1.0"
 edition = "2024"
+authors = ["Jason Wiemels <jason@together.ai>"]
+
+[workspace.dependencies]
+serde = "1.0"
+serde_json = "1.0"
+hf-hub = "0.4"
 
 [dependencies]
 minijinja = { version = "2.11", features = ["unicode", "loop_controls"] }
@@ -16,11 +24,21 @@ openai-harmony = "0.0"
 jsonschema = "0.33"
 regex = "1.11"
 llguidance = "1.2"
-hf-hub = "0.4"
 
-serde = "1.0"
-serde_json = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+hf-hub = { workspace = true }
+
 chrono = "0.4"
 indexmap = "2.11"
 futures = "0.3"
 thiserror = "2.0"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+overflow-checks = false
+opt-level = 3
+debug = false
+strip = true

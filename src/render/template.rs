@@ -10,9 +10,9 @@ use crate::{
     render::{
         RenderError,
         schema::{
-            ChatAssistantChunk, ChatMessageChunk, ChatMessageContent, ChatMessageVariant,
-            ChatMessages, ChatTool, ChatToolCall, ChatUserChunk, CustomTool, CustomToolFormat,
-            CustomToolGrammar, CustomToolSyntax, FunctionTool,
+            ChatAssistantChunk, ChatImageUrl, ChatMessageContent, ChatMessageVariant, ChatMessages,
+            ChatTool, ChatToolCall, ChatUserChunk, CustomTool, CustomToolFormat, CustomToolGrammar,
+            CustomToolSyntax, FunctionTool,
         },
     },
 };
@@ -26,6 +26,7 @@ pub struct ChatTemplate {
     bos_token: Option<String>,
     eos_token: Option<String>,
     multimodal: bool,
+    add_generation_prompt: bool,
 }
 
 #[derive(Serialize)]
@@ -75,6 +76,7 @@ impl ChatTemplate {
             tokenizer_config.bos_token,
             tokenizer_config.eos_token,
             multimodal,
+            true,
         )
     }
 
@@ -83,6 +85,7 @@ impl ChatTemplate {
         bos_token: Option<String>,
         eos_token: Option<String>,
         multimodal: bool,
+        add_generation_prompt: bool,
     ) -> Result<Self, InitError> {
         let mut environment = Environment::new();
         environment.set_unknown_method_callback(pycompat::unknown_method_callback);
@@ -110,17 +113,38 @@ impl ChatTemplate {
             bos_token,
             eos_token,
             multimodal,
+            add_generation_prompt,
         })
     }
 
     pub fn render(
         &self,
-        messages: &[TemplateChatMessage],
+        mut messages: Vec<TemplateChatMessage>,
         tools: &[TemplateTool],
     ) -> Result<String, RenderError> {
+        for message in messages.iter_mut() {
+            if self.multimodal {
+                if let ChatTemplateContent::Collapsed(text) = &mut message.content {
+                    message.content =
+                        ChatTemplateContent::Chunks(vec![std::mem::take(text).into()]);
+                }
+            } else if let ChatTemplateContent::Chunks(chunks) = &mut message.content {
+                message.content = ChatTemplateContent::Collapsed(chunks.iter().fold(
+                    String::new(),
+                    |mut acc, chunk| {
+                        if let ChatTemplateChunk::Text { text } = chunk {
+                            acc += text;
+                        }
+
+                        acc
+                    },
+                ));
+            }
+        }
+
         // let final_message = messages.last().and_then(|msg| {
         //     msg.content.last().and_then(|chunk| {
-        //         if let ChatMessageChunk::Text { text } = chunk {
+        //         if let ChatTemplateChunk::Text { text } = chunk {
         //             Some((msg.role.clone(), text.clone()))
         //         } else {
         //             None
@@ -129,7 +153,7 @@ impl ChatTemplate {
         // });
 
         let inputs = ChatTemplateInputs {
-            messages,
+            messages: &messages,
             tools,
             bos_token: self.bos_token.as_deref(),
             eos_token: self.eos_token.as_deref(),
@@ -204,149 +228,127 @@ pub struct ModelConfig {
     pub image_token_id: Option<u32>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum ChatTemplateChunk {
+    Text { text: String },
+    Image { url: String },
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum ChatTemplateContent {
+    Chunks(Vec<ChatTemplateChunk>),
+    Collapsed(String),
+}
+
+#[derive(Serialize)]
 pub struct TemplateChatMessage {
-    pub content: Vec<ChatMessageChunk>,
     pub role: String,
+    pub content: ChatTemplateContent,
     pub name: Option<String>,
     pub refusal: Option<String>,
     pub tool_calls: Option<Vec<ChatToolCall>>,
     pub tool_call_id: Option<String>,
 }
 
+impl From<String> for ChatTemplateChunk {
+    fn from(text: String) -> Self {
+        ChatTemplateChunk::Text { text }
+    }
+}
+
+impl From<ChatUserChunk> for ChatTemplateChunk {
+    fn from(chunk: ChatUserChunk) -> Self {
+        match chunk {
+            ChatUserChunk::Text { text } => ChatTemplateChunk::Text { text },
+            ChatUserChunk::ImageUrl {
+                image_url: ChatImageUrl { url },
+            } => ChatTemplateChunk::Image { url },
+        }
+    }
+}
+
+impl From<ChatAssistantChunk> for ChatTemplateChunk {
+    fn from(chunk: ChatAssistantChunk) -> Self {
+        match chunk {
+            ChatAssistantChunk::Text { text } => ChatTemplateChunk::Text { text },
+            ChatAssistantChunk::Refusal { refusal } => ChatTemplateChunk::Text { text: refusal },
+        }
+    }
+}
+
+impl<T: Into<ChatTemplateChunk>> From<ChatMessageContent<T>> for Vec<ChatTemplateChunk> {
+    fn from(content: ChatMessageContent<T>) -> Self {
+        match content {
+            ChatMessageContent::SingleText(text) => vec![text.into()],
+            ChatMessageContent::ManyChunks(chunks) => chunks.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 impl From<ChatMessages> for Vec<TemplateChatMessage> {
-    fn from(value: ChatMessages) -> Self {
-        let variants = match value {
+    fn from(messages: ChatMessages) -> Self {
+        match messages {
             ChatMessages::Content(s) => {
-                return vec![TemplateChatMessage {
-                    content: vec![ChatMessageChunk::Text { text: s }],
+                vec![TemplateChatMessage {
+                    content: ChatTemplateContent::Chunks(
+                        ChatMessageContent::<String>::SingleText(s).into(),
+                    ),
                     role: "user".to_string(),
                     name: None,
                     refusal: None,
                     tool_calls: None,
                     tool_call_id: None,
-                }];
+                }]
             }
-            ChatMessages::Conversation(messages) => messages,
-        };
-
-        variants
-            .into_iter()
-            .map(|m| match m {
-                ChatMessageVariant::Developer(msg) => {
-                    let content = match msg.content {
-                        ChatMessageContent::SingleText(text) => {
-                            vec![ChatMessageChunk::Text { text }]
-                        }
-                        ChatMessageContent::ManyChunks(chunks) => chunks
-                            .into_iter()
-                            .map(|chunk| ChatMessageChunk::Text { text: chunk })
-                            .collect(),
-                    };
-
-                    TemplateChatMessage {
-                        content,
+            ChatMessages::Conversation(messages) => messages
+                .into_iter()
+                .map(|m| match m {
+                    ChatMessageVariant::Developer(msg) => TemplateChatMessage {
+                        content: ChatTemplateContent::Chunks(msg.content.into()),
                         role: "developer".to_string(),
                         name: msg.name,
                         refusal: None,
                         tool_calls: None,
                         tool_call_id: None,
-                    }
-                }
-                ChatMessageVariant::System(msg) => {
-                    let content = match msg.content {
-                        ChatMessageContent::SingleText(text) => {
-                            vec![ChatMessageChunk::Text { text }]
-                        }
-                        ChatMessageContent::ManyChunks(chunks) => chunks
-                            .into_iter()
-                            .map(|chunk| ChatMessageChunk::Text { text: chunk })
-                            .collect(),
-                    };
-
-                    TemplateChatMessage {
-                        content,
+                    },
+                    ChatMessageVariant::System(msg) => TemplateChatMessage {
+                        content: ChatTemplateContent::Chunks(msg.content.into()),
                         role: "system".to_string(),
                         name: msg.name,
                         refusal: None,
                         tool_calls: None,
                         tool_call_id: None,
-                    }
-                }
-                ChatMessageVariant::User(msg) => {
-                    let content = match msg.content {
-                        ChatMessageContent::SingleText(text) => {
-                            vec![ChatMessageChunk::Text { text }]
-                        }
-                        ChatMessageContent::ManyChunks(chunks) => chunks
-                            .into_iter()
-                            .map(|chunk| match chunk {
-                                ChatUserChunk::Text { text } => ChatMessageChunk::Text { text },
-                                ChatUserChunk::ImageUrl { image_url } => {
-                                    ChatMessageChunk::Image { image: image_url }
-                                }
-                            })
-                            .collect(),
-                    };
-
-                    TemplateChatMessage {
-                        content,
+                    },
+                    ChatMessageVariant::User(msg) => TemplateChatMessage {
+                        content: ChatTemplateContent::Chunks(msg.content.into()),
                         role: "user".to_string(),
                         name: msg.name,
                         refusal: None,
                         tool_calls: None,
                         tool_call_id: None,
-                    }
-                }
-                ChatMessageVariant::Assistant(msg) => {
-                    let content = match msg.content {
-                        ChatMessageContent::SingleText(text) => {
-                            vec![ChatMessageChunk::Text { text }]
-                        }
-                        ChatMessageContent::ManyChunks(chunks) => chunks
-                            .into_iter()
-                            .map(|chunk| match chunk {
-                                ChatAssistantChunk::Text { text } => {
-                                    ChatMessageChunk::Text { text }
-                                }
-                                ChatAssistantChunk::Refusal { refusal } => {
-                                    ChatMessageChunk::Refusal { refusal }
-                                }
-                            })
-                            .collect(),
-                    };
-
-                    TemplateChatMessage {
-                        content,
+                    },
+                    ChatMessageVariant::Assistant(msg) => TemplateChatMessage {
+                        content: ChatTemplateContent::Chunks(msg.content.into()),
                         role: "assistant".to_string(),
                         name: msg.name,
                         refusal: msg.refusal,
                         tool_calls: msg.tool_calls,
                         tool_call_id: None,
-                    }
-                }
-                ChatMessageVariant::Tool(msg) => {
-                    let content = match msg.content {
-                        ChatMessageContent::SingleText(text) => {
-                            vec![ChatMessageChunk::Text { text }]
-                        }
-                        ChatMessageContent::ManyChunks(chunks) => chunks
-                            .into_iter()
-                            .map(|chunk| ChatMessageChunk::Text { text: chunk })
-                            .collect(),
-                    };
-
-                    TemplateChatMessage {
-                        content,
+                    },
+                    ChatMessageVariant::Tool(msg) => TemplateChatMessage {
+                        content: ChatTemplateContent::Chunks(msg.content.into()),
                         role: "tool".to_string(),
                         name: None,
                         refusal: None,
                         tool_calls: None,
                         tool_call_id: Some(msg.tool_call_id),
-                    }
-                }
-            })
-            .collect()
+                    },
+                })
+                .collect(),
+        }
     }
 }
 

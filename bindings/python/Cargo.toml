@@ -1,19 +1,16 @@
-
 [package]
-name = "acquiesce-node"
+name = "acquiesce-python"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
+name = "acquiesce_py"
 crate-type = ["cdylib"]
 
 [dependencies]
 acquiesce = { path = "../../" }
-napi = "3"
-napi-derive = "3"
+pyo3 = { version = "0.26", features = ["extension-module"] }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-[build-dependencies]
-napi-build = "2"
+hf-hub = { workspace = true }

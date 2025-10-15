@@ -52,7 +52,7 @@ impl Acquiesce {
                     tools.is_empty(),
                     matches!(tool_choice, ChatToolChoice::None),
                 ) else {
-                    let prompt = chat_template.render(&messages.into(), &[])?;
+                    let prompt = chat_template.render(messages.into(), &[])?;
 
                     return Ok(RenderResult {
                         prompt,
@@ -194,7 +194,7 @@ impl Acquiesce {
                     }
                 };
 
-                let prompt = chat_template.render(&messages.into(), &validated_tools)?;
+                let prompt = chat_template.render(messages.into(), &validated_tools)?;
 
                 let parser = self.parser();
 

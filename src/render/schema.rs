@@ -93,15 +93,6 @@ pub enum ChatMessages {
     Conversation(Vec<ChatMessageVariant>),
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ChatMessageChunk {
-    Text { text: String },
-    Image { image: ChatImageUrl },
-    // InputAudio { input_audio: }
-    Refusal { refusal: String },
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct FunctionTool {
     pub name: String,

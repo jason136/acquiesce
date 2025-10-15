@@ -1,18 +1,18 @@
 use std::sync::{Arc, Mutex};
 
 use acquiesce::{
+    AcquiesceRepr,
     parse::{ParseResult, Parser},
     render::{GrammarType, RenderResult},
-    Acquiesce, AcquiesceRepr,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 #[napi]
-pub struct AcquiesceHandle(Acquiesce);
+pub struct Acquiesce(acquiesce::Acquiesce);
 
 #[napi]
-impl AcquiesceHandle {
+impl Acquiesce {
     #[napi(constructor)]
     pub fn new(
         source: String,
@@ -25,7 +25,7 @@ impl AcquiesceHandle {
             .map_err(|e| Error::new(Status::InvalidArg, e.to_string()))?;
 
         Ok(Self(
-            repr.resolve_from_options(chat_template, bos_token, eos_token)
+            repr.resolve_from_options(chat_template, bos_token, eos_token, false, true)
                 .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?,
         ))
     }
@@ -38,7 +38,7 @@ impl AcquiesceHandle {
         tool_choice_json: String,
         parallel_tool_calls: bool,
     ) -> AsyncTask<RenderTask<'a>> {
-        let AcquiesceHandle(inner) = self;
+        let Acquiesce(inner) = self;
         AsyncTask::new(RenderTask {
             inner,
             messages_json,
@@ -58,7 +58,7 @@ impl AcquiesceHandle {
 }
 
 pub struct RenderTask<'a> {
-    inner: &'a Acquiesce,
+    inner: &'a acquiesce::Acquiesce,
     messages_json: String,
     tools_json: String,
     tool_choice_json: String,
