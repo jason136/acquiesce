@@ -1,34 +1,31 @@
-use crate::{
-    AcquiesceRepr, Arguments, Config, LiteralOrWild, Thinking, ToolCall, ToolCalls, WildType,
-};
+use crate::{AcquiesceRepr, Arguments, Config, Lexeme, Thinking, ToolCall, ToolCalls};
 
 pub fn kimi_k2() -> AcquiesceRepr {
     Config::Components {
         chat_template: (),
         thinking: Some(Thinking {
-            prefix: "<thinking>".into(),
-            suffix: "</thinking>".into(),
+            prefix: Lexeme::Token("<thinking>".to_string()).into(),
+            suffix: Lexeme::Token("</thinking>".to_string()).into(),
         }),
         tool_calls: Some(ToolCalls::ToolCallsSection {
-            prefix: "<|tool_calls_section_begin|>".into(),
+            prefix: Lexeme::Token("<|tool_calls_section_begin|>".to_string()).into(),
             tool_call: ToolCall::NamedParameters {
-                prefix: Some("<|tool_call_begin|>functions.".into()),
+                prefix: Some(Lexeme::Token("<|tool_call_begin|>functions.".to_string()).into()),
                 delimiter: Some(
                     [
-                        LiteralOrWild::Literal(":".to_string()),
-                        LiteralOrWild::Wild {
-                            wild: WildType::Numeric,
-                            bounded: None,
+                        Lexeme::Text(":".to_string()),
+                        Lexeme::Regex {
+                            pattern: "[0-9]+".to_string(),
                         },
-                        LiteralOrWild::Literal("<|tool_call_argument_begin|>".to_string()),
+                        Lexeme::Token("<|tool_call_argument_begin|>".to_string()),
                     ]
                     .as_slice()
                     .into(),
                 ),
                 arguments: Arguments::JsonObject,
-                suffix: Some("<|tool_call_end|>".into()),
+                suffix: Some(Lexeme::Token("<|tool_call_end|>".to_string()).into()),
             },
-            suffix: Some("<|tool_calls_section_end|>".into()),
+            suffix: Some(Lexeme::Token("<|tool_calls_section_end|>".to_string()).into()),
         }),
     }
 }

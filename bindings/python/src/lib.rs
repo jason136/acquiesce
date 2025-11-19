@@ -1,8 +1,10 @@
-use acquiesce::render::{
-    GrammarType,
-    schema::{ChatMessages, ChatTool, ChatToolChoice},
+use acquiesce::{
+    AcquiesceRepr,
+    render::{
+        GrammarSyntax,
+        schema::{ChatMessages, ChatTool, ChatToolChoice},
+    },
 };
-use hf_hub::{Cache, Repo, RepoType};
 use pyo3::exceptions::{PyIOError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyType;
@@ -38,24 +40,29 @@ pub struct RenderResult {
 #[pymethods]
 impl Acquiesce {
     #[classmethod]
-    fn from_repo(
+    fn new(
         _cls: &Bound<'_, PyType>,
-        hf_cache_path: &str,
-        model_id: &str,
-        revision: Option<&str>,
+        source: String,
+        chat_template: String,
+        bos_token: Option<String>,
+        eos_token: Option<String>,
+        multimodal: bool,
+        add_generation_prompt: bool,
     ) -> PyResult<Self> {
-        let cache = Cache::new(hf_cache_path.into());
+        let repr = serde_json::from_str::<AcquiesceRepr>(&source)
+            .or(AcquiesceRepr::infer_default(source.as_str()))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-        let repo = if let Some(revision) = revision {
-            Repo::with_revision(model_id.into(), RepoType::Model, revision.into())
-        } else {
-            Repo::model(model_id.into())
-        };
-
-        let acquiesce = acquiesce::Acquiesce::from_repo(&cache.repo(repo))
-            .map_err(|e| InitError::new_err(e.to_string()))?;
-
-        Ok(Self(acquiesce))
+        Ok(Self(
+            repr.resolve_from_options(
+                chat_template,
+                bos_token,
+                eos_token,
+                multimodal,
+                add_generation_prompt,
+            )
+            .map_err(|e| PyValueError::new_err(e.to_string()))?,
+        ))
     }
 
     fn render(
@@ -65,15 +72,27 @@ impl Acquiesce {
         tools_json: String,
         tool_choice_json: String,
         parallel_tool_calls: bool,
+        mixed_content_tool_calls: bool,
+        grammar_syntax: String,
     ) -> PyResult<RenderResult> {
         let Acquiesce(inner) = self;
         py.detach(|| {
             let messages = serde_json::from_str::<ChatMessages>(&messages_json)
-                .map_err(|e| PyValueError::new_err(format!("Invalid messages JSON: {}", e)))?;
+                .map_err(|e| PyValueError::new_err(format!("Invalid messages JSON: {e}")))?;
             let tools = serde_json::from_str::<Vec<ChatTool>>(&tools_json)
-                .map_err(|e| PyValueError::new_err(format!("Invalid tools JSON: {}", e)))?;
+                .map_err(|e| PyValueError::new_err(format!("Invalid tools JSON: {e}")))?;
             let tool_choice = serde_json::from_str::<ChatToolChoice>(&tool_choice_json)
-                .map_err(|e| PyValueError::new_err(format!("Invalid tool_choice JSON: {}", e)))?;
+                .map_err(|e| PyValueError::new_err(format!("Invalid tool_choice JSON: {e}")))?;
+
+            let grammar_syntax = match grammar_syntax.as_str() {
+                "lark" => GrammarSyntax::Lark,
+                "gbnf" => GrammarSyntax::GBNF,
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "Invalid grammar syntax: {grammar_syntax}"
+                    )));
+                }
+            };
 
             let result = inner
                 .render(
@@ -81,7 +100,8 @@ impl Acquiesce {
                     tools,
                     tool_choice,
                     parallel_tool_calls,
-                    GrammarType::Lark,
+                    mixed_content_tool_calls,
+                    grammar_syntax,
                 )
                 .map_err(|e| RenderError::new_err(e.to_string()))?;
 

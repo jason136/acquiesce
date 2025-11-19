@@ -3,13 +3,19 @@ use std::sync::{Arc, Mutex};
 use acquiesce::{
     AcquiesceRepr,
     parse::{ParseResult, Parser},
-    render::{GrammarType, RenderResult},
+    render::RenderResult,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 #[napi]
 pub struct Acquiesce(acquiesce::Acquiesce);
+
+#[napi]
+pub enum GrammarSyntax {
+    Lark,
+    GBNF,
+}
 
 #[napi]
 impl Acquiesce {
@@ -37,6 +43,8 @@ impl Acquiesce {
         tools_json: String,
         tool_choice_json: String,
         parallel_tool_calls: bool,
+        mixed_content_tool_calls: bool,
+        grammar_syntax: GrammarSyntax,
     ) -> AsyncTask<RenderTask<'a>> {
         let Acquiesce(inner) = self;
         AsyncTask::new(RenderTask {
@@ -45,7 +53,8 @@ impl Acquiesce {
             tools_json,
             tool_choice_json,
             parallel_tool_calls,
-            grammar_type: GrammarType::Lark,
+            mixed_content_tool_calls,
+            grammar_syntax,
         })
     }
 
@@ -63,7 +72,8 @@ pub struct RenderTask<'a> {
     tools_json: String,
     tool_choice_json: String,
     parallel_tool_calls: bool,
-    grammar_type: GrammarType,
+    mixed_content_tool_calls: bool,
+    grammar_syntax: GrammarSyntax,
 }
 
 #[napi(object)]

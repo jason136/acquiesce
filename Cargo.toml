@@ -24,6 +24,8 @@ openai-harmony = "0.0"
 jsonschema = "0.33"
 regex = "1.11"
 llguidance = "1.2"
+pyo3 = "0.26"
+pyo3-ffi = "0.26"
 
 serde = { workspace = true }
 serde_json = { workspace = true }

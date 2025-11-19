@@ -1,9 +1,9 @@
 use crate::{
-    OrderedLiterals,
+    OrderedLexemes,
     parse::{ConsumeResult, Consumer},
 };
 
-pub fn partial_literal_consumer(OrderedLiterals(literals): OrderedLiterals) -> Consumer {
+pub fn partial_literal_consumer(OrderedLexemes(literals): OrderedLexemes) -> Consumer {
     let mut literals_iter = literals.into_iter();
     let mut curr = literals_iter.next();
 
@@ -13,10 +13,10 @@ pub fn partial_literal_consumer(OrderedLiterals(literals): OrderedLiterals) -> C
         };
 
         // match inner {
-        //     LiteralOrWild::Literal(literal) => {
+        //     Literal::Literal(literal) => {
         //         literal.pop_front();
         //     }
-        //     LiteralOrWild::Wild { wild, bounded } => {
+        //     Literal::Wild { wild, bounded } => {
         //         if wild == c {
         //             return Ok(ConsumeOutput::Consumed);
         //         }
@@ -28,7 +28,7 @@ pub fn partial_literal_consumer(OrderedLiterals(literals): OrderedLiterals) -> C
 }
 
 // pub fn partial_literal_parser(
-//     OrderedLiterals(literals): OrderedLiterals,
+//     OrderedLexemes(literals): OrderedLexemes,
 // ) -> Parser<impl Iterator<Item = ParseResult>> {
 //     let mut literals_iter = literals.into_iter();
 //     let mut curr = literals_iter.next();
@@ -37,7 +37,7 @@ pub fn partial_literal_consumer(OrderedLiterals(literals): OrderedLiterals) -> C
 // }
 
 // pub fn tool_call_trigger_parser(
-//     OrderedLiterals(triggers): OrderedLiterals,
+//     OrderedLexemes(triggers): OrderedLexemes,
 // ) -> impl Iterator<Item = ParseResult> {
 //     todo!()
 // }

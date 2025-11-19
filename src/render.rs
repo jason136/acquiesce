@@ -1,14 +1,14 @@
-use std::{collections::HashSet, sync::OnceLock};
+use std::{collections::HashMap, sync::OnceLock};
 
 use llguidance::{ParserFactory, api::TopLevelGrammar, toktrie::ApproximateTokEnv};
 use serde_json::json;
 
 use crate::{
-    Acquiesce, Arguments, Config, Error, LiteralOrWild, OrderedLiterals, Thinking, ToolCall,
-    ToolCalls, WildType,
+    Acquiesce, Arguments, Config, Error, Lexeme, OrderedLexemes, Thinking, ToolCall, ToolCalls,
     parse::Parser,
     render::{
-        lark::{lark_json_schema, lark_string_literal},
+        gbnf::{gbnf_json_schema, gbnf_regex, gbnf_string_literal},
+        lark::{lark_json_schema, lark_regex, lark_string_literal, lark_token_literal},
         schema::{
             ChatTool, ChatToolChoice, CustomTool, CustomToolFormat, CustomToolGrammar,
             CustomToolSyntax, FunctionName, FunctionTool,
@@ -17,13 +17,15 @@ use crate::{
     },
 };
 
+pub(crate) mod gbnf;
 pub(crate) mod lark;
 
 pub mod schema;
 pub mod template;
 
-pub enum GrammarType {
+pub enum GrammarSyntax {
     Lark,
+    GBNF,
 }
 
 pub struct RenderResult {
@@ -39,7 +41,8 @@ impl Acquiesce {
         tools: Vec<ChatTool>,
         tool_choice: ChatToolChoice,
         parallel_tool_calls: bool,
-        grammar_type: GrammarType,
+        mixed_content_tool_calls: bool,
+        grammar_syntax: GrammarSyntax,
     ) -> Result<RenderResult, RenderError> {
         match self {
             Config::Components {
@@ -112,96 +115,68 @@ impl Acquiesce {
                             Ok::<_, RenderError>(tool_acc)
                         })?;
 
-                let grammar = match grammar_type {
-                    GrammarType::Lark => {
-                        let mut rules = HashSet::new();
-                        rules.insert(lark::TEXT.to_string());
-
-                        fn render_tool_choice(
-                            tool_call: &ToolCall,
-                            tool_choice: &ChatToolChoice,
-                            validated_tools: &[TemplateTool],
-                            rules: &mut HashSet<String>,
-                        ) -> Result<String, RenderError> {
-                            Ok(match &tool_choice {
-                                ChatToolChoice::Auto => {
-                                    format!("({})?", tool_call.render_lark(validated_tools, rules))
-                                }
-                                ChatToolChoice::None => String::new(),
-                                ChatToolChoice::Required => {
-                                    format!("({})", tool_call.render_lark(validated_tools, rules))
-                                }
-                                ChatToolChoice::Function(FunctionName { name }) => {
-                                    let selected_tool = validated_tools
-                                        .iter()
-                                        .find(|tool| &tool.name == name)
-                                        .ok_or(RenderError::ChatToolChoice)?;
-
-                                    format!(
-                                        "({})",
-                                        tool_call.render_lark(
-                                            std::slice::from_ref(selected_tool),
-                                            rules
-                                        )
-                                    )
-                                }
-                            })
-                        }
-
-                        let tool_call = match tool_calls {
-                            ToolCalls::ToolCall { tool_call } => render_tool_choice(
-                                tool_call,
-                                &tool_choice,
-                                &validated_tools,
-                                &mut rules,
-                            )?,
-                            ToolCalls::ToolCallsSection {
-                                prefix,
-                                tool_call,
-                                suffix,
-                            } => {
-                                let mut acc = vec![prefix.render_lark(&mut rules)];
-
-                                let repetition = if parallel_tool_calls { "+" } else { "" };
-
-                                acc.push(format!(
-                                    "({}){repetition}",
-                                    render_tool_choice(
-                                        tool_call,
-                                        &tool_choice,
-                                        &validated_tools,
-                                        &mut rules,
-                                    )?
-                                ));
-
-                                if let Some(suffix) = suffix {
-                                    acc.push(suffix.render_lark(&mut rules));
-                                }
-
-                                format!("({})", acc.join(" "))
-                            }
-                        };
-
-                        let root = if let Some(Thinking { prefix, suffix }) = thinking {
-                            format!(r#"{prefix} "\n" TEXT {suffix} TEXT {tool_call}"#)
-                        } else {
-                            format!("TEXT {tool_call}")
-                        };
-
-                        rules.insert(format!("start: {root}"));
-
-                        Some(rules.into_iter().collect::<Vec<_>>().join("\n"))
-                    }
-                };
-
                 let prompt = chat_template.render(messages.into(), &validated_tools)?;
 
-                let parser = self.parser();
+                let mut rules = Rules::new(grammar_syntax);
+
+                let Some((tools_rule, allow_content)) = (match tool_calls {
+                    ToolCalls::ToolCall { tool_call } => {
+                        tool_choice.render(&tool_call, &validated_tools, &mut rules)?
+                    }
+                    ToolCalls::ToolCallsSection {
+                        prefix,
+                        tool_call,
+                        suffix,
+                    } => tool_choice
+                        .render(&tool_call, &validated_tools, &mut rules)?
+                        .map(|(mut tool_choice, allow_content)| {
+                            let mut acc = vec![prefix.render(&mut rules)?];
+
+                            if parallel_tool_calls {
+                                tool_choice =
+                                    rules.insert_repetition("tool_choice", tool_choice, 0, None);
+                            }
+
+                            acc.push(tool_choice);
+
+                            if let Some(suffix) = suffix {
+                                acc.push(suffix.render(&mut rules)?);
+                            }
+
+                            let tools_rule = rules.insert_sequence("tool_choices", &acc);
+                            Ok::<_, RenderError>((tools_rule, allow_content))
+                        })
+                        .transpose()?,
+                }) else {
+                    return Ok(RenderResult {
+                        prompt,
+                        grammar: None,
+                        parser: None,
+                    });
+                };
+
+                let text_rule = rules.insert_text_lexeme()?;
+                let mut acc = Vec::new();
+
+                if let Some(Thinking { prefix, suffix }) = thinking {
+                    acc.push(prefix.render(&mut rules)?);
+                    acc.push(text_rule.clone());
+                    acc.push(suffix.render(&mut rules)?);
+                }
+
+                if allow_content || mixed_content_tool_calls {
+                    acc.push(text_rule.clone());
+                }
+
+                acc.push(tools_rule);
+
+                let root = rules.insert_sequence("root", &acc);
+                let grammar = rules.resolve(root);
 
                 Ok(RenderResult {
                     prompt,
-                    grammar,
-                    parser,
+                    grammar: Some(grammar),
+                    parser: self.parser(),
                 })
             }
             Config::Harmony => Ok(RenderResult {
@@ -213,40 +188,21 @@ impl Acquiesce {
     }
 }
 
-impl OrderedLiterals {
-    pub fn render_lark(&self, rules: &mut HashSet<String>) -> String {
-        let OrderedLiterals(literals) = self;
+impl OrderedLexemes {
+    fn render(&self, rules: &mut Rules) -> Result<RuleKey, RenderError> {
+        let OrderedLexemes(literals) = self;
 
-        literals
-            .iter()
-            .map(|literal| match literal {
-                LiteralOrWild::Literal(literal) => lark_string_literal(literal),
-                LiteralOrWild::Wild { wild, bounded } => {
-                    let lexeme = match wild {
-                        WildType::Numeric => {
-                            rules.insert(lark::TEXT.to_string());
-                            "TEXT".to_string()
-                        }
-                        WildType::Any => {
-                            rules.insert(lark::NUMBER.to_string());
-                            "NUMBER".to_string()
-                        }
-                    };
+        let sequence_keys = literals
+            .into_iter()
+            .map(|lexeme| rules.insert_lexeme("sequence", lexeme))
+            .collect::<Result<Vec<_>, RenderError>>()?;
 
-                    if let Some(bounded) = bounded {
-                        format!("{lexeme}{{0,{bounded}}}")
-                    } else {
-                        format!("{lexeme}*")
-                    }
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
+        Ok(rules.insert_sequence("sequence", &sequence_keys))
     }
 }
 
 impl TemplateTool {
-    pub fn naive_json_schema(&self, name_key: &str, argument_key: &str) -> serde_json::Value {
+    fn naive_json_schema(&self, name_key: &str, argument_key: &str) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -269,8 +225,37 @@ impl TemplateTool {
     }
 }
 
+impl ChatToolChoice {
+    fn render(
+        &self,
+        tool_call: &ToolCall,
+        validated_tools: &[TemplateTool],
+        rules: &mut Rules,
+    ) -> Result<Option<(RuleKey, bool)>, RenderError> {
+        Ok(match self {
+            ChatToolChoice::Auto => {
+                let tool_choice = tool_call.render(validated_tools, rules)?;
+                let tool_choice = rules.insert_repetition("tool_choice", tool_choice, 0, Some(1));
+
+                Some((tool_choice, true))
+            }
+            ChatToolChoice::None => None,
+            ChatToolChoice::Required => Some((tool_call.render(validated_tools, rules)?, false)),
+            ChatToolChoice::Function(FunctionName { name }) => {
+                let selected_tool = validated_tools
+                    .iter()
+                    .find(|tool| &tool.name == name)
+                    .ok_or(RenderError::ChatToolChoice)?;
+                let tool_choice = tool_call.render(std::slice::from_ref(selected_tool), rules)?;
+
+                Some((tool_choice, false))
+            }
+        })
+    }
+}
+
 impl ToolCall {
-    fn render_lark(&self, tools: &[TemplateTool], rules: &mut HashSet<String>) -> String {
+    fn render(&self, tools: &[TemplateTool], rules: &mut Rules) -> Result<RuleKey, RenderError> {
         match self {
             ToolCall::JsonObject {
                 name_key,
@@ -285,7 +270,7 @@ impl ToolCall {
                     "anyOf": schema_choices,
                 });
 
-                lark_json_schema(&object_schema)
+                Ok(rules.insert_lexeme("tool_choice", &Lexeme::JsonSchema(object_schema))?)
             }
             ToolCall::JsonArray {
                 name_key,
@@ -303,42 +288,187 @@ impl ToolCall {
                     },
                 });
 
-                lark_json_schema(&array_schema)
+                Ok(rules.insert_lexeme("tool_choice", &Lexeme::JsonSchema(array_schema))?)
             }
             ToolCall::NamedParameters {
                 prefix,
                 delimiter,
                 arguments,
                 suffix,
-            } => tools
-                .iter()
-                .map(|tool| {
-                    let mut acc = Vec::new();
+            } => {
+                let alternative_keys = tools
+                    .iter()
+                    .map(|tool| {
+                        let mut acc = Vec::new();
 
-                    if let Some(prefix) = prefix {
-                        acc.push(prefix.render_lark(rules));
-                    }
-
-                    acc.push(lark_string_literal(&tool.name));
-
-                    if let Some(delimiter) = delimiter {
-                        acc.push(delimiter.render_lark(rules));
-                    }
-
-                    match arguments {
-                        Arguments::JsonObject => {
-                            acc.push(lark_json_schema(&tool.parameters));
+                        if let Some(prefix) = prefix {
+                            acc.push(prefix.render(rules)?);
                         }
-                    }
 
-                    if let Some(suffix) = suffix {
-                        acc.push(suffix.render_lark(rules));
-                    }
+                        acc.push(rules.insert_lexeme("name", &Lexeme::Text(tool.name.clone()))?);
 
-                    acc.join(" ")
-                })
-                .collect::<Vec<_>>()
-                .join(" | "),
+                        if let Some(delimiter) = delimiter {
+                            acc.push(delimiter.render(rules)?);
+                        }
+
+                        match arguments {
+                            Arguments::JsonObject => {
+                                acc.push(rules.insert_lexeme(
+                                    "parameters",
+                                    &Lexeme::JsonSchema(tool.parameters.clone()),
+                                )?);
+                            }
+                        }
+
+                        if let Some(suffix) = suffix {
+                            acc.push(suffix.render(rules)?);
+                        }
+
+                        Ok(rules.insert_sequence("tool_choice_item", &acc))
+                    })
+                    .collect::<Result<Vec<_>, RenderError>>()?;
+
+                Ok(rules.insert_alternative("tool_choices", &alternative_keys))
+            }
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct RuleKey(String);
+
+struct Rules {
+    rules: HashMap<RuleKey, String>,
+    syntax: GrammarSyntax,
+}
+
+impl Rules {
+    fn new(syntax: GrammarSyntax) -> Self {
+        Self {
+            rules: HashMap::new(),
+            syntax,
+        }
+    }
+
+    fn insert_sequence(&mut self, key: &str, sequence_keys: &[RuleKey]) -> RuleKey {
+        let rule = sequence_keys
+            .iter()
+            .map(|RuleKey(key)| key.clone())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        self.insert_rule(key, rule)
+    }
+
+    fn insert_alternative(&mut self, key: &str, alternative_keys: &[RuleKey]) -> RuleKey {
+        let rule = alternative_keys
+            .into_iter()
+            .map(|RuleKey(key)| key.clone())
+            .collect::<Vec<_>>()
+            .join(" | ");
+
+        self.insert_rule(key, rule)
+    }
+
+    fn insert_repetition(
+        &mut self,
+        key: &str,
+        RuleKey(repetition_key): RuleKey,
+        start: usize,
+        end: Option<usize>,
+    ) -> RuleKey {
+        let rule = match (start, end) {
+            (0, None) => format!("{}*", repetition_key),
+            (1, None) => format!("{}+", repetition_key),
+            (0, Some(1)) => format!("{}?", repetition_key),
+            (exact, Some(maybe_exact)) if exact == maybe_exact => {
+                format!("{}{{{}}}", repetition_key, exact)
+            }
+            (at_least, None) => format!("{}{{{},}}", repetition_key, at_least),
+            (at_least, Some(at_most)) => format!("{}{{{},{}}}", repetition_key, at_least, at_most),
+        };
+
+        self.insert_rule(key, rule)
+    }
+
+    fn insert_lexeme(&mut self, key: &str, lexeme: &Lexeme) -> Result<RuleKey, RenderError> {
+        match self.syntax {
+            GrammarSyntax::Lark => {
+                let rule = match lexeme {
+                    Lexeme::Text(text) => lark_string_literal(text),
+                    Lexeme::Token(token) => lark_token_literal(token),
+                    Lexeme::Regex { pattern } => lark_regex(pattern),
+                    Lexeme::JsonSchema(json_schema) => lark_json_schema(json_schema),
+                };
+
+                Ok(self.insert_rule(&key.to_uppercase(), rule))
+            }
+            GrammarSyntax::GBNF => {
+                let rule = match lexeme {
+                    Lexeme::Text(text) => gbnf_string_literal(text),
+                    Lexeme::Token(token) => gbnf_string_literal(token),
+                    Lexeme::Regex { pattern } => gbnf_regex(pattern),
+                    Lexeme::JsonSchema(json_schema) => gbnf_json_schema(json_schema)?,
+                };
+
+                Ok(self.insert_rule(key, rule))
+            }
+        }
+    }
+
+    fn insert_rule(&mut self, key: &str, value: String) -> RuleKey {
+        let mut rule_key = RuleKey(key.to_string());
+
+        let mut count = 0;
+        while let Some(rule) = self.rules.get(&rule_key) {
+            if rule == &value {
+                return rule_key;
+            }
+
+            count += 1;
+            rule_key = RuleKey(format!("{}{count}", rule_key.0));
+        }
+
+        self.rules.insert(rule_key.clone(), value);
+
+        rule_key
+    }
+
+    fn insert_text_lexeme(&mut self) -> Result<RuleKey, RenderError> {
+        match self.syntax {
+            GrammarSyntax::Lark => {
+                self.insert_lexeme("text", &Lexeme::Text(lark::TEXT.to_string()))
+            }
+            GrammarSyntax::GBNF => {
+                self.insert_lexeme("text", &Lexeme::Text(gbnf::TEXT.to_string()))
+            }
+        }
+    }
+
+    fn resolve(&mut self, root_key: RuleKey) -> String {
+        let root = self.rules.remove(&root_key).unwrap_or_default();
+
+        match self.syntax {
+            GrammarSyntax::Lark => {
+                format!(
+                    "start: {root}\n{}",
+                    self.rules
+                        .iter()
+                        .map(|(RuleKey(key), value)| format!("{key}: {value}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
+            }
+            GrammarSyntax::GBNF => {
+                format!(
+                    "root ::= {root}\n{}",
+                    self.rules
+                        .iter()
+                        .map(|(RuleKey(key), value)| format!("{key} ::= {value}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
+            }
         }
     }
 }
@@ -351,12 +481,15 @@ pub enum RenderError {
     #[error("regex for tool {0} is invalid: {1}")]
     Regex(String, String),
 
+    #[error("tool choice not found in provided tools")]
+    ChatToolChoice,
+
     #[error("lark grammar for tool {0} is invalid: {1}")]
     Lark(String, String),
 
+    #[error("python error: {0}")]
+    Python(#[from] pyo3::PyErr),
+
     #[error("chat template render error: {0}")]
     Template(#[from] minijinja::Error),
-
-    #[error("tool choice not found in provided tools")]
-    ChatToolChoice,
 }

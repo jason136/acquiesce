@@ -45,10 +45,10 @@ pub enum ToolCall {
         argument_key: String,
     },
     NamedParameters {
-        prefix: Option<OrderedLiterals>,
-        delimiter: Option<OrderedLiterals>,
+        prefix: Option<OrderedLexemes>,
+        delimiter: Option<OrderedLexemes>,
         arguments: Arguments,
-        suffix: Option<OrderedLiterals>,
+        suffix: Option<OrderedLexemes>,
     },
 }
 
@@ -60,16 +60,16 @@ pub enum ToolCalls {
         tool_call: ToolCall,
     },
     ToolCallsSection {
-        prefix: OrderedLiterals,
+        prefix: OrderedLexemes,
         tool_call: ToolCall,
-        suffix: Option<OrderedLiterals>,
+        suffix: Option<OrderedLexemes>,
     },
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Thinking {
-    prefix: String,
-    suffix: String,
+    prefix: OrderedLexemes,
+    suffix: OrderedLexemes,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -230,67 +230,52 @@ impl From<DistinctLiterals> for DistinctLiteralsRepr {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum LiteralOrWild {
-    Literal(String),
-    Wild {
-        wild: WildType,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        bounded: Option<usize>,
-    },
+pub enum Lexeme {
+    Text(String),
+    Token(String),
+    Regex { pattern: String },
+    JsonSchema(serde_json::Value),
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WildType {
-    Numeric,
-    Any,
-}
+#[serde(from = "OrderedLexemesRepr", into = "OrderedLexemesRepr")]
+pub struct OrderedLexemes(Vec<Lexeme>);
 
-impl From<&str> for LiteralOrWild {
-    fn from(s: &str) -> Self {
-        LiteralOrWild::Literal(s.to_string())
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(from = "OrderedLiteralsRepr", into = "OrderedLiteralsRepr")]
-pub struct OrderedLiterals(Vec<LiteralOrWild>);
-
-impl<T: Into<LiteralOrWild>> From<T> for OrderedLiterals {
+impl<T: Into<Lexeme>> From<T> for OrderedLexemes {
     fn from(s: T) -> Self {
-        OrderedLiterals(vec![s.into()])
+        OrderedLexemes(vec![s.into()])
     }
 }
 
-impl<T: Into<LiteralOrWild> + Clone> From<&[T]> for OrderedLiterals {
+impl<T: Into<Lexeme> + Clone> From<&[T]> for OrderedLexemes {
     fn from(arr: &[T]) -> Self {
-        OrderedLiterals(arr.iter().map(|s| s.clone().into()).collect())
+        OrderedLexemes(arr.iter().map(|s| s.clone().into()).collect())
     }
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
-enum OrderedLiteralsRepr {
-    String(LiteralOrWild),
-    Array(Vec<LiteralOrWild>),
+enum OrderedLexemesRepr {
+    String(Lexeme),
+    Array(Vec<Lexeme>),
 }
 
-impl From<OrderedLiteralsRepr> for OrderedLiterals {
-    fn from(repr: OrderedLiteralsRepr) -> Self {
+impl From<OrderedLexemesRepr> for OrderedLexemes {
+    fn from(repr: OrderedLexemesRepr) -> Self {
         match repr {
-            OrderedLiteralsRepr::String(s) => Self(vec![s]),
-            OrderedLiteralsRepr::Array(arr) => Self(arr),
+            OrderedLexemesRepr::String(s) => Self(vec![s]),
+            OrderedLexemesRepr::Array(arr) => Self(arr),
         }
     }
 }
 
-impl From<OrderedLiterals> for OrderedLiteralsRepr {
-    fn from(ordered_literals: OrderedLiterals) -> Self {
-        let OrderedLiterals(arr) = ordered_literals;
+impl From<OrderedLexemes> for OrderedLexemesRepr {
+    fn from(ordered_lexemes: OrderedLexemes) -> Self {
+        let OrderedLexemes(arr) = ordered_lexemes;
 
         match arr.len() {
-            1 => OrderedLiteralsRepr::String(arr.into_iter().next().unwrap()),
-            _ => OrderedLiteralsRepr::Array(arr.into_iter().collect()),
+            1 => OrderedLexemesRepr::String(arr.into_iter().next().unwrap()),
+            _ => OrderedLexemesRepr::Array(arr.into_iter().collect()),
         }
     }
 }
