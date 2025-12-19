@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChatImageUrl {
     pub url: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum ChatUserChunk {
@@ -14,7 +14,7 @@ pub enum ChatUserChunk {
     // InputAudio { input_audio: }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum ChatAssistantChunk {
@@ -22,26 +22,26 @@ pub enum ChatAssistantChunk {
     Refusal { refusal: String },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ChatMessageContent<T> {
     SingleText(String),
     ManyChunks(Vec<T>),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolCallType {
     Function,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChatFunction {
     pub name: Option<String>,
     pub arguments: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChatToolCall {
     pub index: Option<usize>,
     pub id: Option<String>,
@@ -49,19 +49,19 @@ pub struct ChatToolCall {
     pub function: ChatFunction,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChatSystemDeveloperMessage {
     pub content: ChatMessageContent<String>,
     pub name: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChatUserMessage {
     pub content: ChatMessageContent<ChatUserChunk>,
     pub name: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChatAssistantMessage {
     pub content: ChatMessageContent<ChatAssistantChunk>,
     pub refusal: Option<String>,
@@ -70,13 +70,13 @@ pub struct ChatAssistantMessage {
     pub tool_calls: Option<Vec<ChatToolCall>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChatToolMessage {
     pub content: ChatMessageContent<String>,
     pub tool_call_id: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "role", rename_all = "snake_case")]
 pub enum ChatMessageVariant {
     Developer(ChatSystemDeveloperMessage),
@@ -86,7 +86,7 @@ pub enum ChatMessageVariant {
     Tool(ChatToolMessage),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ChatMessages {
     Content(String),
@@ -136,7 +136,7 @@ pub enum ChatTool {
     Custom { custom: CustomTool },
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct FunctionName {
     pub name: String,
 }
@@ -171,7 +171,7 @@ impl From<ToolChoiceRepr> for ChatToolChoice {
     }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Clone, Deserialize, Default)]
 #[serde(from = "ToolChoiceRepr")]
 pub enum ChatToolChoice {
     #[default]

@@ -1,11 +1,9 @@
 use std::{collections::HashMap, sync::OnceLock};
 
-use llguidance::{ParserFactory, api::TopLevelGrammar, toktrie::ApproximateTokEnv};
+use llguidance::{api::TopLevelGrammar, toktrie::ApproximateTokEnv, ParserFactory};
 use serde_json::json;
 
 use crate::{
-    Acquiesce, Arguments, Config, Error, Lexeme, OrderedLexemes, Thinking, ToolCall, ToolCalls,
-    parse::Parser,
     render::{
         gbnf::{gbnf_json_schema, gbnf_regex, gbnf_string_literal},
         lark::{lark_json_schema, lark_regex, lark_string_literal, lark_token_literal},
@@ -15,10 +13,12 @@ use crate::{
         },
         template::{TemplateChatMessage, TemplateTool},
     },
+    Acquiesce, Arguments, Config, Error, Lexeme, OrderedLexemes, Thinking, ToolCall, ToolCalls,
 };
 
 pub(crate) mod gbnf;
 pub(crate) mod lark;
+pub(crate) mod json;
 
 pub mod schema;
 pub mod template;
@@ -31,7 +31,7 @@ pub enum GrammarSyntax {
 pub struct RenderResult {
     pub prompt: String,
     pub grammar: Option<String>,
-    pub parser: Option<Parser>,
+    // pub parser: Option<Parser>,
 }
 
 impl Acquiesce {
@@ -60,7 +60,7 @@ impl Acquiesce {
                     return Ok(RenderResult {
                         prompt,
                         grammar: None,
-                        parser: None,
+                        // parser: None,
                     });
                 };
 
@@ -121,14 +121,14 @@ impl Acquiesce {
 
                 let Some((tools_rule, allow_content)) = (match tool_calls {
                     ToolCalls::ToolCall { tool_call } => {
-                        tool_choice.render(&tool_call, &validated_tools, &mut rules)?
+                        tool_choice.render(tool_call, &validated_tools, &mut rules)?
                     }
                     ToolCalls::ToolCallsSection {
                         prefix,
                         tool_call,
                         suffix,
                     } => tool_choice
-                        .render(&tool_call, &validated_tools, &mut rules)?
+                        .render(tool_call, &validated_tools, &mut rules)?
                         .map(|(mut tool_choice, allow_content)| {
                             let mut acc = vec![prefix.render(&mut rules)?];
 
@@ -151,7 +151,7 @@ impl Acquiesce {
                     return Ok(RenderResult {
                         prompt,
                         grammar: None,
-                        parser: None,
+                        // parser: None,
                     });
                 };
 
@@ -176,13 +176,13 @@ impl Acquiesce {
                 Ok(RenderResult {
                     prompt,
                     grammar: Some(grammar),
-                    parser: self.parser(),
+                    // parser: self.parser(),
                 })
             }
             Config::Harmony => Ok(RenderResult {
                 prompt: String::new(),
                 grammar: None,
-                parser: None,
+                // parser: None,
             }),
         }
     }
@@ -193,7 +193,7 @@ impl OrderedLexemes {
         let OrderedLexemes(literals) = self;
 
         let sequence_keys = literals
-            .into_iter()
+            .iter()
             .map(|lexeme| rules.insert_lexeme("sequence", lexeme))
             .collect::<Result<Vec<_>, RenderError>>()?;
 
@@ -362,7 +362,7 @@ impl Rules {
 
     fn insert_alternative(&mut self, key: &str, alternative_keys: &[RuleKey]) -> RuleKey {
         let rule = alternative_keys
-            .into_iter()
+            .iter()
             .map(|RuleKey(key)| key.clone())
             .collect::<Vec<_>>()
             .join(" | ");
@@ -492,4 +492,7 @@ pub enum RenderError {
 
     #[error("chat template render error: {0}")]
     Template(#[from] minijinja::Error),
+
+    #[error("json serialization error: {0}")]
+    Json(#[from] serde_json::Error),
 }

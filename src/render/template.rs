@@ -2,8 +2,10 @@ use chrono::Utc;
 use hf_hub::CacheRepo;
 use minijinja::{Environment, ErrorKind, Template};
 use minijinja_contrib::pycompat;
+use pyo3::{Py, ffi::c_str, prelude::*, types::PyDict};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
+use serde_json_fmt::JsonFormat;
 
 use crate::{
     InitError,
@@ -90,18 +92,31 @@ impl ChatTemplate {
         let mut environment = Environment::new();
         environment.set_unknown_method_callback(pycompat::unknown_method_callback);
 
+        fn tojson(
+            x: serde_json::Value,
+            ensure_ascii: Option<bool>,
+            indent: Option<usize>,
+            separators: Option<(&str, &str)>,
+            sort_keys: Option<bool>,
+        ) -> String {
+            let (comma, colon) = separators.unwrap_or((",", ":"));
+
+            "".to_string()
+        }
+
         fn raise_exception(err_text: String) -> minijinja::Error {
             minijinja::Error::new(ErrorKind::SyntaxError, err_text)
         }
-
-        environment.add_function("raise_exception", raise_exception);
 
         fn strftime_now(format_str: &str) -> String {
             Utc::now().format(format_str).to_string()
         }
 
+        environment.add_function("tojson", tojson);
+        environment.add_function("raise_exception", raise_exception);
         environment.add_function("strftime_now", strftime_now);
 
+        let chat_template_fallback = chat_template.clone();
         let template = Box::leak(Box::new(environment))
             .template_from_str(Box::leak(chat_template.into_boxed_str()))?;
 
@@ -160,7 +175,7 @@ impl ChatTemplate {
             add_generation_prompt: true,
         };
 
-        let rendered_template = self.template.render(inputs)?;
+        let rendered_template = self.template.render(&inputs)?;
 
         // match final_message {
         //     Some((role, text)) if role == "assistant" => {

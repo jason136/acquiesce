@@ -1,6 +1,7 @@
-use crate::{
-    Acquiesce, Arguments, Config, ToolCall, ToolCalls, utils::partial_json::partial_json_consumer,
-};
+use crate::{Acquiesce, Config, ToolCall, ToolCalls};
+
+pub(crate) mod partial_json;
+pub(crate) mod partial_literal;
 
 pub struct ToolCallDelta {
     pub index: usize,
@@ -115,12 +116,14 @@ impl ToolCall {
                     Suffix(String),
                 }
 
-                let arguments_consumer = || match arguments {
-                    Arguments::JsonObject => partial_json_consumer(),
-                };
-
-                let mut state = NamedParametersState::Prefix(String::new());
                 todo!()
+
+                // let arguments_consumer = || match arguments {
+                //     Arguments::JsonObject => partial_json_consumer(),
+                // };
+
+                // let mut state = NamedParametersState::Prefix(String::new());
+
                 // Parser(Box::new(move |c| match state {
                 //     NamedParametersState::Prefix(prefix) => match prefix.consume_char(c) {
                 //         ConsumeResult::Captured(c) => {

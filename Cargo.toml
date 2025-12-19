@@ -18,18 +18,19 @@ serde_json = "1.0"
 hf-hub = "0.4"
 
 [dependencies]
-minijinja = { version = "2.11", features = ["unicode", "loop_controls"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hf-hub = { workspace = true }
+
+minijinja = { version = "2.11", features = ["unicode", "loop_controls", "builtins", "json"] }
 minijinja-contrib = { version = "2.11", features = ["pycompat"] }
+serde-json-fmt = "0.1"
 openai-harmony = "0.0"
 jsonschema = "0.33"
 regex = "1.11"
 llguidance = "1.2"
-pyo3 = "0.26"
+pyo3 = { version = "0.26", features = ["auto-initialize"]}
 pyo3-ffi = "0.26"
-
-serde = { workspace = true }
-serde_json = { workspace = true }
-hf-hub = { workspace = true }
 
 chrono = "0.4"
 indexmap = "2.11"

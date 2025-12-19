@@ -6,8 +6,6 @@ use thiserror::Error;
 
 use crate::{configs::kimik2::kimi_k2, render::template::ChatTemplate};
 
-pub(crate) mod utils;
-
 pub mod configs;
 pub mod parse;
 pub mod render;
@@ -299,4 +297,7 @@ pub enum InitError {
 
     #[error("chat template compilation error: {0}")]
     TemplateCompilation(#[from] minijinja::Error),
+
+    #[error("fallback chat template compilation error: {0}")]
+    FallbackTemplateCompilation(#[from] pyo3::PyErr),
 }
