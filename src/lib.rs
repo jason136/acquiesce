@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::{configs::kimik2::kimi_k2, render::template::ChatTemplate};
 
 pub mod configs;
+pub mod json;
 pub mod parse;
 pub mod render;
 

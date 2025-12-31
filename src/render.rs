@@ -1,9 +1,10 @@
 use std::{collections::HashMap, sync::OnceLock};
 
-use llguidance::{api::TopLevelGrammar, toktrie::ApproximateTokEnv, ParserFactory};
+use llguidance::{ParserFactory, api::TopLevelGrammar, toktrie::ApproximateTokEnv};
 use serde_json::json;
 
 use crate::{
+    Acquiesce, Arguments, Config, Error, Lexeme, OrderedLexemes, Thinking, ToolCall, ToolCalls,
     render::{
         gbnf::{gbnf_json_schema, gbnf_regex, gbnf_string_literal},
         lark::{lark_json_schema, lark_regex, lark_string_literal, lark_token_literal},
@@ -13,12 +14,10 @@ use crate::{
         },
         template::{TemplateChatMessage, TemplateTool},
     },
-    Acquiesce, Arguments, Config, Error, Lexeme, OrderedLexemes, Thinking, ToolCall, ToolCalls,
 };
 
 pub(crate) mod gbnf;
 pub(crate) mod lark;
-pub(crate) mod json;
 
 pub mod schema;
 pub mod template;

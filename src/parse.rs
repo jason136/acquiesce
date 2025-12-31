@@ -1,7 +1,6 @@
 use crate::{Acquiesce, Config, ToolCall, ToolCalls};
 
-pub(crate) mod partial_json;
-pub(crate) mod partial_literal;
+pub(crate) mod literal;
 
 pub struct ToolCallDelta {
     pub index: usize,

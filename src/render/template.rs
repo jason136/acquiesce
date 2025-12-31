@@ -1,14 +1,13 @@
 use chrono::Utc;
 use hf_hub::CacheRepo;
-use minijinja::{Environment, ErrorKind, Template};
+use minijinja::{Environment, Error, ErrorKind, Template, value::Kwargs};
 use minijinja_contrib::pycompat;
-use pyo3::{Py, ffi::c_str, prelude::*, types::PyDict};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
-use serde_json_fmt::JsonFormat;
 
 use crate::{
     InitError,
+    json::JsonFormatter,
     render::{
         RenderError,
         schema::{
@@ -92,16 +91,25 @@ impl ChatTemplate {
         let mut environment = Environment::new();
         environment.set_unknown_method_callback(pycompat::unknown_method_callback);
 
-        fn tojson(
-            x: serde_json::Value,
-            ensure_ascii: Option<bool>,
-            indent: Option<usize>,
-            separators: Option<(&str, &str)>,
-            sort_keys: Option<bool>,
-        ) -> String {
-            let (comma, colon) = separators.unwrap_or((",", ":"));
+        fn tojson(value: minijinja::Value, kwargs: Kwargs) -> Result<String, Error> {
+            let indent: Option<u32> = kwargs.get("indent")?;
+            let ensure_ascii: Option<bool> = kwargs.get("ensure_ascii")?;
+            let sort_keys: Option<bool> = kwargs.get("sort_keys")?;
 
-            "".to_string()
+            kwargs.assert_all_used()?;
+
+            let formatter = JsonFormatter {
+                indent: indent.map(|n| n as usize),
+                item_separator: if indent.is_some() { "," } else { ", " },
+                key_separator: ": ",
+                sort_keys: sort_keys.unwrap_or(false),
+                ensure_ascii: ensure_ascii.unwrap_or(true),
+                escape_solidus: false,
+            };
+
+            formatter
+                .serialize(&value)
+                .map_err(|e| Error::new(ErrorKind::InvalidOperation, e.to_string()))
         }
 
         fn raise_exception(err_text: String) -> minijinja::Error {
@@ -112,11 +120,10 @@ impl ChatTemplate {
             Utc::now().format(format_str).to_string()
         }
 
-        environment.add_function("tojson", tojson);
+        environment.add_filter("tojson", tojson);
         environment.add_function("raise_exception", raise_exception);
         environment.add_function("strftime_now", strftime_now);
 
-        let chat_template_fallback = chat_template.clone();
         let template = Box::leak(Box::new(environment))
             .template_from_str(Box::leak(chat_template.into_boxed_str()))?;
 

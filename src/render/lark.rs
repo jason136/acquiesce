@@ -6,7 +6,7 @@ pub fn lark_string_literal(literal: &str) -> String {
 }
 
 pub fn lark_token_literal(token: &str) -> String {
-    format!(r#"{token}"#)
+    token.to_string()
 }
 
 pub fn lark_regex(regex: &str) -> String {

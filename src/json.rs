@@ -1,9 +1,222 @@
-use std::{
-    fmt::{self, Display},
-    mem::take,
-};
+use std::fmt::{self, Display};
+
+use itertools::{Either, Itertools};
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::parse::{ConsumeResult, Consumer};
+
+pub struct JsonFormatter<'a> {
+    pub indent: Option<usize>,
+    pub key_separator: &'a str,
+    pub item_separator: &'a str,
+    pub sort_keys: bool,
+    pub ensure_ascii: bool,
+    pub escape_solidus: bool,
+}
+
+impl<'a> Default for JsonFormatter<'a> {
+    fn default() -> Self {
+        Self {
+            indent: None,
+            key_separator: ": ",
+            item_separator: ", ",
+            sort_keys: false,
+            ensure_ascii: false,
+            escape_solidus: false,
+        }
+    }
+}
+
+impl<'a> JsonFormatter<'a> {
+    pub fn pretty(indent: usize) -> Self {
+        Self {
+            indent: Some(indent),
+            item_separator: ",",
+            ..Default::default()
+        }
+    }
+
+    pub fn compact() -> Self {
+        Self {
+            key_separator: ":",
+            item_separator: ",",
+            ..Default::default()
+        }
+    }
+
+    pub fn serialize<T: Serialize>(&self, value: &T) -> Result<String, serde_json::Error> {
+        let json_value = serde_json::to_value(value)?;
+
+        Ok(JsonFormatterState {
+            value: &json_value,
+            format: self,
+            depth: 0,
+        }
+        .to_string())
+    }
+}
+
+struct JsonFormatterState<'a> {
+    value: &'a Value,
+    format: &'a JsonFormatter<'a>,
+    depth: usize,
+}
+
+struct JsonStringFormatter<'a> {
+    value: &'a str,
+    format: &'a JsonFormatter<'a>,
+}
+
+impl<'a> Display for JsonStringFormatter<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "\"")?;
+
+        for c in self.value.chars() {
+            match c {
+                '"' => write!(f, "\\\"")?,
+                '\\' => write!(f, "\\\\")?,
+                '/' if self.format.escape_solidus => write!(f, "\\/")?,
+                '\u{0008}' => write!(f, "\\b")?,
+                '\u{000C}' => write!(f, "\\f")?,
+                '\n' => write!(f, "\\n")?,
+                '\r' => write!(f, "\\r")?,
+                '\t' => write!(f, "\\t")?,
+                c if c.is_control() => write!(f, "\\u{:04x}", c as u32)?,
+                c if !c.is_ascii() && self.format.ensure_ascii => {
+                    let cp = c as u32;
+                    if cp > 0xFFFF {
+                        let adjusted = cp - 0x10000;
+                        let high = 0xD800 + (adjusted >> 10);
+                        let low = 0xDC00 + (adjusted & 0x3FF);
+                        write!(f, "\\u{high:04x}\\u{low:04x}")?;
+                    } else {
+                        write!(f, "\\u{cp:04x}")?;
+                    }
+                }
+                _ => write!(f, "{c}")?,
+            }
+        }
+
+        write!(f, "\"")?;
+
+        Ok(())
+    }
+}
+
+impl<'a> Display for JsonFormatterState<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.value {
+            Value::String(s) => JsonStringFormatter {
+                value: s,
+                format: self.format,
+            }
+            .fmt(f),
+            Value::Object(entries) => {
+                if entries.is_empty() {
+                    write!(f, "{{}}")?;
+
+                    return Ok(());
+                }
+
+                let (newline, indent, closing_indent) = if let Some(indent) = self.format.indent {
+                    (
+                        "\n",
+                        Indent(indent * (self.depth + 1)),
+                        Indent(indent * self.depth),
+                    )
+                } else {
+                    ("", Indent(0), Indent(0))
+                };
+
+                write!(f, "{{")?;
+
+                for (i, (key, value)) in if self.format.sort_keys {
+                    Either::Left(entries.iter().sorted_by_key(|(key, _)| key.as_str()))
+                } else {
+                    Either::Right(entries.iter())
+                }
+                .enumerate()
+                {
+                    let key_formatter = JsonStringFormatter {
+                        value: key,
+                        format: self.format,
+                    };
+
+                    let nested_formatter = JsonFormatterState {
+                        value,
+                        format: self.format,
+                        depth: self.depth + 1,
+                    };
+
+                    write!(
+                        f,
+                        "{newline}{indent}{key_formatter}{}{nested_formatter}",
+                        self.format.key_separator
+                    )?;
+
+                    if i < entries.len() - 1 {
+                        write!(f, "{}", self.format.item_separator)?;
+                    }
+                }
+
+                write!(f, "{newline}{closing_indent}}}")?;
+
+                Ok(())
+            }
+            Value::Array(elements) => {
+                if elements.is_empty() {
+                    write!(f, "[]")?;
+
+                    return Ok(());
+                }
+
+                let (newline, indent, closing_indent) = if let Some(indent) = self.format.indent {
+                    (
+                        "\n",
+                        Indent(indent * (self.depth + 1)),
+                        Indent(indent * self.depth),
+                    )
+                } else {
+                    ("", Indent(0), Indent(0))
+                };
+
+                write!(f, "[")?;
+
+                for (i, value) in elements.iter().enumerate() {
+                    let nested_formatter = JsonFormatterState {
+                        value,
+                        format: self.format,
+                        depth: self.depth + 1,
+                    };
+
+                    write!(f, "{newline}{indent}{nested_formatter}")?;
+
+                    if i < elements.len() - 1 {
+                        write!(f, "{}", self.format.item_separator)?;
+                    }
+                }
+
+                write!(f, "{newline}{closing_indent}]")?;
+
+                Ok(())
+            }
+            _ => self.value.fmt(f),
+        }
+    }
+}
+
+struct Indent(usize);
+
+impl Display for Indent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for _ in 0..self.0 {
+            write!(f, " ")?;
+        }
+
+        Ok(())
+    }
+}
 
 pub fn partial_json_consumer() -> Consumer {
     let mut state = PartialJson::default();
@@ -152,13 +365,13 @@ impl PartialJson {
                 match state {
                     ObjectState::Key(key) => match key.consume_char(c) {
                         ConsumeResult::Unconsumed(_) => {
-                            *state = ObjectState::Colon(take(&mut key.buffer));
+                            *state = ObjectState::Colon(std::mem::take(&mut key.buffer));
                         }
                         consume_result => return consume_result,
                     },
                     ObjectState::Value(key, value) => match value.consume_char(c) {
                         ConsumeResult::Unconsumed(_) => {
-                            entries.push((take(key), take(value)));
+                            entries.push((std::mem::take(key), std::mem::take(value)));
                             *state = ObjectState::Comma;
                         }
                         consume_result => return consume_result,
@@ -190,7 +403,7 @@ impl PartialJson {
                     ObjectState::Colon(key) => match c {
                         c if is_whitespace(c) => return ConsumeResult::Omitted,
                         ':' => {
-                            *state = ObjectState::Value(take(key), Box::default());
+                            *state = ObjectState::Value(std::mem::take(key), Box::default());
                         }
                         _ => {
                             return ConsumeResult::Rejected(
@@ -227,7 +440,7 @@ impl PartialJson {
                 if let ArrayState::Element(element) = state {
                     match element.consume_char(c) {
                         ConsumeResult::Unconsumed(_) => {
-                            elements.push(take(element));
+                            elements.push(std::mem::take(element));
                             *state = ArrayState::Comma;
                         }
                         consume_result => return consume_result,
@@ -334,63 +547,6 @@ impl PartialJson {
     }
 }
 
-impl Display for PartialJson {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PartialJson::Start => {}
-            PartialJson::Object { entries, state } => {
-                write!(f, "{{")?;
-
-                let mut entries_iter = entries.iter().peekable();
-                while let Some((key, value)) = entries_iter.next() {
-                    write!(f, "\"{key}\":{value}")?;
-                    if entries_iter.peek().is_some() {
-                        write!(f, ",")?;
-                    }
-                }
-
-                let comma_prefix = if entries.is_empty() { "" } else { "," };
-                match state {
-                    ObjectState::Opened => {}
-                    ObjectState::Key(key) => write!(f, "{comma_prefix}{key}")?,
-                    ObjectState::Colon(key) => write!(f, "{comma_prefix}\"{key}\"")?,
-                    ObjectState::Value(key, value) => write!(f, "{comma_prefix}\"{key}\":{value}")?,
-                    ObjectState::Comma => {}
-                    ObjectState::Closed => write!(f, "}}")?,
-                };
-            }
-            PartialJson::Array { elements, state } => {
-                write!(f, "[")?;
-
-                let mut elements_iter = elements.iter().peekable();
-                while let Some(element) = elements_iter.next() {
-                    write!(f, "{element}")?;
-                    if elements_iter.peek().is_some() {
-                        write!(f, ",")?;
-                    }
-                }
-
-                match state {
-                    ArrayState::Opened => {}
-                    ArrayState::Element(element) => {
-                        if !elements.is_empty() {
-                            write!(f, ",")?;
-                        }
-                        write!(f, "{element}")?;
-                    }
-                    ArrayState::Comma => {}
-                    ArrayState::Closed => write!(f, "]")?,
-                };
-            }
-            PartialJson::String(json_string) => write!(f, "{json_string}")?,
-            PartialJson::Number { buffer, .. } => write!(f, "{buffer}")?,
-            PartialJson::Literal { buffer, .. } => write!(f, "{buffer}")?,
-        };
-
-        Ok(())
-    }
-}
-
 impl JsonString {
     pub fn consume_char(&mut self, c: char) -> ConsumeResult {
         match &mut self.state {
@@ -462,34 +618,5 @@ impl JsonString {
         };
 
         ConsumeResult::Consumed
-    }
-}
-
-impl Display for JsonString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if !matches!(self.state, StringState::Start) {
-            write!(f, "\"")?;
-        }
-
-        for c in self.buffer.chars() {
-            match c {
-                c if c.is_control() => write!(f, "\\u{:04x}", c as u32)?,
-                '"' => write!(f, "\\\"")?,
-                '\\' => write!(f, "\\\\")?,
-                '/' => write!(f, "\\/")?,
-                '\u{0008}' => write!(f, "\\b")?,
-                '\u{000C}' => write!(f, "\\f")?,
-                '\n' => write!(f, "\\n")?,
-                '\r' => write!(f, "\\r")?,
-                '\t' => write!(f, "\\t")?,
-                _ => write!(f, "{c}")?,
-            }
-        }
-
-        if let StringState::Closed = self.state {
-            write!(f, "\"")?;
-        }
-
-        Ok(())
     }
 }
