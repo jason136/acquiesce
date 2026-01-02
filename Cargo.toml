@@ -29,6 +29,7 @@ openai-harmony = "0.0"
 jsonschema = "0.33"
 regex = "1.11"
 llguidance = "1.2"
+moka = "0.5"
 pyo3 = { version = "0.26", features = ["auto-initialize"] }
 pyo3-ffi = "0.26"
 

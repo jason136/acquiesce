@@ -1,5 +1,6 @@
 use std::sync::OnceLock;
 
+use moka::sync::Cache;
 use pyo3::{
     Py, PyAny, PyErr, PyResult, Python,
     types::{PyAnyMethods, PyDict, PyModule},
@@ -20,6 +21,13 @@ pub fn gbnf_regex(regex: &str) -> String {
 }
 
 pub fn gbnf_json_schema(json_schema: &serde_json::Value) -> Result<String, RenderError> {
+    static CACHE: OnceLock<Cache<String, String>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Cache::new(10000));
+
+    if let Some(grammar) = cache.get(&json_schema.to_string()) {
+        return Ok(grammar);
+    }
+
     let py_src = c_str!(include_str!("python/json_schema_to_gbnf.py"));
 
     let grammar = Python::attach(|py| -> PyResult<String> {

@@ -1,5 +1,8 @@
+use std::borrow::Cow;
+
 use chrono::Utc;
 use hf_hub::CacheRepo;
+use itertools::Itertools;
 use minijinja::{Environment, Error, ErrorKind, Template, value::Kwargs};
 use minijinja_contrib::pycompat;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -93,15 +96,35 @@ impl ChatTemplate {
 
         fn tojson(value: minijinja::Value, kwargs: Kwargs) -> Result<String, Error> {
             let indent: Option<u32> = kwargs.get("indent")?;
-            let ensure_ascii: Option<bool> = kwargs.get("ensure_ascii")?;
             let sort_keys: Option<bool> = kwargs.get("sort_keys")?;
+            let ensure_ascii: Option<bool> = kwargs.get("ensure_ascii")?;
+            let separators: Option<minijinja::Value> = kwargs.get("separators")?;
 
             kwargs.assert_all_used()?;
 
+            let (item_separator, key_separator) = if let Some(value) = separators {
+                value
+                    .try_iter()
+                    .map_err(|e| Error::new(ErrorKind::InvalidOperation, e.to_string()))?
+                    .map(|v| Cow::Owned(v.to_string()))
+                    .collect_tuple()
+                    .ok_or_else(|| {
+                        Error::new(
+                            ErrorKind::InvalidOperation,
+                            "separators must be a tuple of two strings",
+                        )
+                    })?
+            } else {
+                (
+                    Cow::Borrowed(if indent.is_some() { "," } else { ", " }),
+                    Cow::Borrowed(": "),
+                )
+            };
+
             let formatter = JsonFormatter {
-                indent: indent.map(|n| n as usize),
-                item_separator: if indent.is_some() { "," } else { ", " },
-                key_separator: ": ",
+                indent_width: indent.map(|n| n as usize),
+                item_separator: &item_separator,
+                key_separator: &key_separator,
                 sort_keys: sort_keys.unwrap_or(false),
                 ensure_ascii: ensure_ascii.unwrap_or(true),
                 escape_solidus: false,

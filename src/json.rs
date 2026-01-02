@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::parse::{ConsumeResult, Consumer};
 
 pub struct JsonFormatter<'a> {
-    pub indent: Option<usize>,
+    pub indent_width: Option<usize>,
     pub key_separator: &'a str,
     pub item_separator: &'a str,
     pub sort_keys: bool,
@@ -18,7 +18,7 @@ pub struct JsonFormatter<'a> {
 impl<'a> Default for JsonFormatter<'a> {
     fn default() -> Self {
         Self {
-            indent: None,
+            indent_width: None,
             key_separator: ": ",
             item_separator: ", ",
             sort_keys: false,
@@ -29,9 +29,9 @@ impl<'a> Default for JsonFormatter<'a> {
 }
 
 impl<'a> JsonFormatter<'a> {
-    pub fn pretty(indent: usize) -> Self {
+    pub fn pretty(indent_width: usize) -> Self {
         Self {
-            indent: Some(indent),
+            indent_width: Some(indent_width),
             item_separator: ",",
             ..Default::default()
         }
@@ -84,14 +84,9 @@ impl<'a> Display for JsonStringFormatter<'a> {
                 '\t' => write!(f, "\\t")?,
                 c if c.is_control() => write!(f, "\\u{:04x}", c as u32)?,
                 c if !c.is_ascii() && self.format.ensure_ascii => {
-                    let cp = c as u32;
-                    if cp > 0xFFFF {
-                        let adjusted = cp - 0x10000;
-                        let high = 0xD800 + (adjusted >> 10);
-                        let low = 0xDC00 + (adjusted & 0x3FF);
-                        write!(f, "\\u{high:04x}\\u{low:04x}")?;
-                    } else {
-                        write!(f, "\\u{cp:04x}")?;
+                    let mut buf = [0u16; 2];
+                    for codepoint in c.encode_utf16(&mut buf) {
+                        write!(f, "\\u{codepoint:04x}")?;
                     }
                 }
                 _ => write!(f, "{c}")?,
@@ -119,50 +114,40 @@ impl<'a> Display for JsonFormatterState<'a> {
                     return Ok(());
                 }
 
-                let (newline, indent, closing_indent) = if let Some(indent) = self.format.indent {
-                    (
-                        "\n",
-                        Indent(indent * (self.depth + 1)),
-                        Indent(indent * self.depth),
-                    )
-                } else {
-                    ("", Indent(0), Indent(0))
-                };
+                let Whitespace {
+                    newline,
+                    inner,
+                    outer,
+                } = self.whitespace();
 
-                write!(f, "{{")?;
-
-                for (i, (key, value)) in if self.format.sort_keys {
-                    Either::Left(entries.iter().sorted_by_key(|(key, _)| key.as_str()))
-                } else {
-                    Either::Right(entries.iter())
-                }
-                .enumerate()
-                {
-                    let key_formatter = JsonStringFormatter {
-                        value: key,
-                        format: self.format,
-                    };
-
-                    let nested_formatter = JsonFormatterState {
-                        value,
-                        format: self.format,
-                        depth: self.depth + 1,
-                    };
-
-                    write!(
-                        f,
-                        "{newline}{indent}{key_formatter}{}{nested_formatter}",
-                        self.format.key_separator
-                    )?;
-
-                    if i < entries.len() - 1 {
-                        write!(f, "{}", self.format.item_separator)?;
+                write!(
+                    f,
+                    "{{{}{newline}{outer}}}",
+                    if self.format.sort_keys {
+                        Either::Left(entries.iter().sorted_by_key(|(key, _)| key.as_str()))
+                    } else {
+                        Either::Right(entries.iter())
                     }
-                }
+                    .format_with(
+                        self.format.item_separator,
+                        |(key, value), f| {
+                            let key_formatter = JsonStringFormatter {
+                                value: key,
+                                format: self.format,
+                            };
+                            let value_formatter = JsonFormatterState {
+                                value,
+                                format: self.format,
+                                depth: self.depth + 1,
+                            };
 
-                write!(f, "{newline}{closing_indent}}}")?;
-
-                Ok(())
+                            f(&format_args!(
+                                "{newline}{inner}{key_formatter}{}{value_formatter}",
+                                self.format.key_separator
+                            ))
+                        }
+                    )
+                )
             }
             Value::Array(elements) => {
                 if elements.is_empty() {
@@ -171,50 +156,62 @@ impl<'a> Display for JsonFormatterState<'a> {
                     return Ok(());
                 }
 
-                let (newline, indent, closing_indent) = if let Some(indent) = self.format.indent {
-                    (
-                        "\n",
-                        Indent(indent * (self.depth + 1)),
-                        Indent(indent * self.depth),
-                    )
-                } else {
-                    ("", Indent(0), Indent(0))
-                };
+                let Whitespace {
+                    newline,
+                    inner,
+                    outer,
+                } = self.whitespace();
 
-                write!(f, "[")?;
+                write!(
+                    f,
+                    "[{}{newline}{outer}]",
+                    elements
+                        .iter()
+                        .format_with(self.format.item_separator, |value, f| {
+                            let element_formatter = JsonFormatterState {
+                                value,
+                                format: self.format,
+                                depth: self.depth + 1,
+                            };
 
-                for (i, value) in elements.iter().enumerate() {
-                    let nested_formatter = JsonFormatterState {
-                        value,
-                        format: self.format,
-                        depth: self.depth + 1,
-                    };
-
-                    write!(f, "{newline}{indent}{nested_formatter}")?;
-
-                    if i < elements.len() - 1 {
-                        write!(f, "{}", self.format.item_separator)?;
-                    }
-                }
-
-                write!(f, "{newline}{closing_indent}]")?;
-
-                Ok(())
+                            f(&format_args!("{newline}{inner}{element_formatter}"))
+                        }),
+                )
             }
             _ => self.value.fmt(f),
         }
     }
 }
 
-struct Indent(usize);
+struct Whitespace<T: Display> {
+    newline: &'static str,
+    inner: T,
+    outer: T,
+}
 
-impl Display for Indent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for _ in 0..self.0 {
-            write!(f, " ")?;
+impl<'a> JsonFormatterState<'a> {
+    fn whitespace(&self) -> Whitespace<impl Display> {
+        struct Padding(usize);
+
+        impl Display for Padding {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{:width$}", "", width = self.0)
+            }
         }
 
-        Ok(())
+        if let Some(indent_width) = self.format.indent_width {
+            Whitespace {
+                newline: "\n",
+                inner: Padding(indent_width * (self.depth + 1)),
+                outer: Padding(indent_width * self.depth),
+            }
+        } else {
+            Whitespace {
+                newline: "",
+                inner: Padding(0),
+                outer: Padding(0),
+            }
+        }
     }
 }
 
