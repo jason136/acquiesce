@@ -1,4 +1,5 @@
-use std::{collections::HashMap, sync::OnceLock};
+use core::fmt;
+use std::{collections::HashMap, fmt::Display, sync::OnceLock};
 
 use llguidance::{ParserFactory, api::TopLevelGrammar, toktrie::ApproximateTokEnv};
 use serde_json::json;
@@ -334,7 +335,13 @@ impl ToolCall {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-struct RuleKey(String);
+struct RuleKey(String, usize);
+
+impl Display for RuleKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", self.0, self.1)
+    }
+}
 
 struct Rules {
     rules: HashMap<RuleKey, String>,
@@ -352,7 +359,7 @@ impl Rules {
     fn insert_sequence(&mut self, key: &str, sequence_keys: &[RuleKey]) -> RuleKey {
         let rule = sequence_keys
             .iter()
-            .map(|RuleKey(key)| key.clone())
+            .map(|rule_key| rule_key.to_string())
             .collect::<Vec<_>>()
             .join(" ");
 
@@ -362,7 +369,7 @@ impl Rules {
     fn insert_alternative(&mut self, key: &str, alternative_keys: &[RuleKey]) -> RuleKey {
         let rule = alternative_keys
             .iter()
-            .map(|RuleKey(key)| key.clone())
+            .map(|rule_key| rule_key.to_string())
             .collect::<Vec<_>>()
             .join(" | ");
 
@@ -372,7 +379,7 @@ impl Rules {
     fn insert_repetition(
         &mut self,
         key: &str,
-        RuleKey(repetition_key): RuleKey,
+        repetition_key: RuleKey,
         start: usize,
         end: Option<usize>,
     ) -> RuleKey {
@@ -416,16 +423,16 @@ impl Rules {
     }
 
     fn insert_rule(&mut self, key: &str, value: String) -> RuleKey {
-        let mut rule_key = RuleKey(key.to_string());
-
         let mut count = 0;
+        let mut rule_key = RuleKey(key.to_string(), count);
+
         while let Some(rule) = self.rules.get(&rule_key) {
             if rule == &value {
                 return rule_key;
             }
 
             count += 1;
-            rule_key = RuleKey(format!("{}{count}", rule_key.0));
+            rule_key.1 = count;
         }
 
         self.rules.insert(rule_key.clone(), value);
@@ -453,7 +460,7 @@ impl Rules {
                     "start: {root}\n{}",
                     self.rules
                         .iter()
-                        .map(|(RuleKey(key), value)| format!("{key}: {value}"))
+                        .map(|(key, value)| format!("{key}: {value}"))
                         .collect::<Vec<_>>()
                         .join("\n")
                 )
@@ -463,7 +470,7 @@ impl Rules {
                     "root ::= {root}\n{}",
                     self.rules
                         .iter()
-                        .map(|(RuleKey(key), value)| format!("{key} ::= {value}"))
+                        .map(|(key, value)| format!("{key} ::= {value}"))
                         .collect::<Vec<_>>()
                         .join("\n")
                 )

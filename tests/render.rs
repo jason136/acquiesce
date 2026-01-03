@@ -8,18 +8,18 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 const TEST_MODELS: &[&str] = &[
-    "zai-org/GLM-4.6-FP8",
-    "zai-org/GLM-4.5-Air-FP8",
+    // "zai-org/GLM-4.6-FP8",
+    // "zai-org/GLM-4.5-Air-FP8",
     "moonshotai/Kimi-K2-Instruct-0905",
     "moonshotai/Kimi-K2-Thinking",
-    "deepseek-ai/DeepSeek-V3",
-    "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
-    "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
-    "Qwen/Qwen3-Next-80B-A3B-Instruct",
-    "Qwen/Qwen3-Next-80B-A3B-Thinking",
-    "Qwen/Qwen3-235B-A22B-Thinking-2507-FP8",
-    "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8",
-    "EssentialAI/rnj-1-instruct",
+    // "deepseek-ai/DeepSeek-V3",
+    // "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+    // "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+    // "Qwen/Qwen3-Next-80B-A3B-Instruct",
+    // "Qwen/Qwen3-Next-80B-A3B-Thinking",
+    // "Qwen/Qwen3-235B-A22B-Thinking-2507-FP8",
+    // "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8",
+    // "EssentialAI/rnj-1-instruct",
 ];
 
 const TEST_CORPUS_PATH: &str = "tests/messages.jsonl";

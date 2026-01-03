@@ -18,13 +18,15 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 hf-hub = { workspace = true }
 
-minijinja = { version = "2.11", features = [
+minijinja = { git = "https://github.com/jason136/minijinja", branch = "main", features = [
     "unicode",
     "loop_controls",
     "builtins",
     "json",
 ] }
-minijinja-contrib = { version = "2.11", features = ["pycompat"] }
+minijinja-contrib = { git = "https://github.com/jason136/minijinja", branch = "main", features = [
+    "pycompat",
+] }
 openai-harmony = "0.0"
 jsonschema = "0.33"
 regex = "1.11"

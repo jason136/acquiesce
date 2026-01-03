@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use chrono::Utc;
 use hf_hub::CacheRepo;
 use itertools::Itertools;
-use minijinja::{Environment, Error, ErrorKind, Template, value::Kwargs};
+use minijinja::{Environment, ErrorKind, Template, value::Kwargs};
 use minijinja_contrib::pycompat;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
@@ -94,7 +94,7 @@ impl ChatTemplate {
         let mut environment = Environment::new();
         environment.set_unknown_method_callback(pycompat::unknown_method_callback);
 
-        fn tojson(value: minijinja::Value, kwargs: Kwargs) -> Result<String, Error> {
+        fn tojson(value: minijinja::Value, kwargs: Kwargs) -> Result<String, minijinja::Error> {
             let indent: Option<u32> = kwargs.get("indent")?;
             let sort_keys: Option<bool> = kwargs.get("sort_keys")?;
             let ensure_ascii: Option<bool> = kwargs.get("ensure_ascii")?;
@@ -105,11 +105,11 @@ impl ChatTemplate {
             let (item_separator, key_separator) = if let Some(value) = separators {
                 value
                     .try_iter()
-                    .map_err(|e| Error::new(ErrorKind::InvalidOperation, e.to_string()))?
+                    .map_err(|e| minijinja::Error::new(ErrorKind::InvalidOperation, e.to_string()))?
                     .map(|v| Cow::Owned(v.to_string()))
                     .collect_tuple()
                     .ok_or_else(|| {
-                        Error::new(
+                        minijinja::Error::new(
                             ErrorKind::InvalidOperation,
                             "separators must be a tuple of two strings",
                         )
@@ -132,7 +132,7 @@ impl ChatTemplate {
 
             formatter
                 .serialize(&value)
-                .map_err(|e| Error::new(ErrorKind::InvalidOperation, e.to_string()))
+                .map_err(|e| minijinja::Error::new(ErrorKind::InvalidOperation, e.to_string()))
         }
 
         fn raise_exception(err_text: String) -> minijinja::Error {
