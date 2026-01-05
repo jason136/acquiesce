@@ -10,6 +10,7 @@ pub mod configs;
 pub mod json;
 pub mod parse;
 pub mod render;
+pub mod schema;
 
 pub static ACQUIESCE_CONFIG: &str = "acquiesce.json";
 
@@ -298,7 +299,4 @@ pub enum InitError {
 
     #[error("chat template compilation error: {0}")]
     TemplateCompilation(#[from] minijinja::Error),
-
-    #[error("fallback chat template compilation error: {0}")]
-    FallbackTemplateCompilation(#[from] pyo3::PyErr),
 }

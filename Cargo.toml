@@ -28,12 +28,10 @@ minijinja-contrib = { git = "https://github.com/jason136/minijinja", branch = "m
     "pycompat",
 ] }
 openai-harmony = "0.0"
-jsonschema = "0.33"
+jsonschema = "0.38"
 regex = "1.11"
 llguidance = "1.2"
 moka = "0.5"
-pyo3 = { version = "0.26", features = ["auto-initialize"] }
-pyo3-ffi = "0.26"
 
 itertools = "0.14"
 chrono = "0.4"

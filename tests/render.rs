@@ -68,18 +68,37 @@ fn test_render_corpus() {
             tool_choice,
         } in test_cases.clone()
         {
-            let RenderResult { prompt, grammar } = acquiesce
+            let RenderResult {
+                grammar: lark_grammar,
+                ..
+            } = acquiesce
                 .render(
-                    messages,
-                    tools,
-                    tool_choice,
-                    false,
-                    false,
+                    messages.clone(),
+                    tools.clone(),
+                    tool_choice.clone(),
+                    true,
+                    true,
                     GrammarSyntax::Lark,
                 )
                 .unwrap();
 
-            println!("Prompt: {prompt}\nGrammar: {grammar:?}\n\n");
+            let RenderResult {
+                prompt,
+                grammar: gbnf_grammar,
+            } = acquiesce
+                .render(
+                    messages,
+                    tools,
+                    tool_choice,
+                    true,
+                    true,
+                    GrammarSyntax::GBNF,
+                )
+                .unwrap();
+
+            println!("Prompt: {prompt}");
+            println!("GBNF Grammar: {gbnf_grammar:?}");
+            println!("Lark Grammar: {lark_grammar:?}");
         }
     }
 }
